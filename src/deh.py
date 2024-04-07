@@ -146,6 +146,11 @@ class DEH():
                 test1.fit(X,y)
                 self.nodes[n].splitter = test1.coef_, test1.intercept_
         
+    def trim(self, level):
+        nodes = list(self.nodes.keys())
+        for n in nodes:
+            if len(n) > level:
+                del self.nodes[n]        
         
     def check_splitting(self):
         return (len(self.nodes_to_split())>0) and (self.get_depth()<self.max_depth)
@@ -1531,7 +1536,7 @@ class DEH():
         self.set_lmda()
         depth = self.get_depth()
         for i in range(depth):
-            print("depth of ", i)
+            #("depth of ", i)
             if target == 'W':
                 self.fn_level(i)
             elif target == 'S':
@@ -1597,7 +1602,7 @@ class DEH():
                     fnsum = np.zeros((len(self.nodes[n].classifier), len(self.nodes[n].map)))
                 for m in nal:
                     if m[:-1] + '1' in nal:
-                        print(n, m)
+                        #print(n, m)
                         try:
                             fna = self.nodes[n].fns[m[:-1]]*self.nodes[m].lmda
                         except AttributeError:
@@ -1987,16 +1992,21 @@ class DEH():
         self.display_level(1)
         if len(sampling_points) > 0:
             self.nodes[''].map = np.ones(len(sampling_points))
-        #print(self.nodes)
         self.quick_alt_ll(image, beta=beta, n_update_points=n_update_pts, tol=tol,
                      obj_record=obj_record, sampling_points=sampling_points)
         self.predict(image)
-        #print(self.nodes)
         while self.check_splitting():
             eL = self.remainder_at_level(image, self.get_depth())
             self.add_another_node_layer(image)
             self.update_spectra(image, self.get_depth(), 'average2')
             for n in self.nodes:
+                if len(n) == (self.get_depth()-1):
+                    if n + '1' in self.nodes:
+                        pos = np.min(self.nodes[n].classifier - eL, axis=1) > 0
+                        big_err = np.argmax(np.sum(eL[pos]**2, axis=1))
+                        args = np.argsort(((image - self.nodes[n].classifier)**2).sum(axis=1))
+                        self.nodes[n].splitter = classifiers_2_svm(self.nodes[n].classifier - eL[pos][big_err],
+                                                                   self.nodes[n].classifier + eL[pos][big_err])
                 if len(n) == (self.get_depth()):
                     self.nodes[n].classifier = self.nodes[n[:-1]].classifier
             self.quick_alt_ll(image, beta=beta/(2**(self.get_depth()-1)), tol=tol/(2**(self.get_depth()-1)),
@@ -2016,6 +2026,23 @@ class DEH():
 
             self.predict(image)
             self.display_level(self.get_depth())
+            
+    def switch_training(self, image, beta, tol, n_update_points=1000, scaling_factor=4,
+                        obj_record=(), sampling_points=()):
+        self.quick_alt_ll( image, beta=beta, tol=tol,
+                               n_update_points=n_update_points,
+                               obj_record=obj_record, sampling_points=sampling_points)
+        old_obj = 1
+        new_obj = 0
+        while np.abs(old_obj - new_obj) > tol:
+                self.quick_alt( image, beta=beta, tol=tol,
+                      n_update_points=n_update_points,
+                            sampling_points=sampling_points, obj_record=obj_record, scaling_factor=scaling_factor)
+                self.quick_alt_ll( image, beta=beta, tol=tol,
+                               n_update_points=n_update_points,
+                               obj_record=obj_record, sampling_points=sampling_points)
+                old_obj = new_obj
+                new_obj = obj_record[-1][0]
             
             
 def classify_from_partition(data, coef, intercept, threshold=0, spread=1):
