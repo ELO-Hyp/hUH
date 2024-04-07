@@ -1,6 +1,6 @@
 import numpy as np
 import scipy.optimize as opt
-import osp as osp
+import src.DR.osp as osp
 import copy
 
 EPS = 1e-4

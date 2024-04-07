@@ -6,8 +6,9 @@ import scipy.ndimage as nd
 import scipy.optimize as opt
 import sklearn.svm as svm
 import tables as tab
-import DR.nmf as nmf
+import src.DR.nmf as nmf
 import time  
+import copy
 
 class Node():
     def __init__(self, spatial_map, classifier, status=True):
@@ -76,6 +77,9 @@ class DEH():
         self.beta = 0.1 # rate of grad descent
         #self.sf = 253
         #return self
+        
+    def check_splitting(self):
+        return (len(self.nodes_to_split())>0) and (self.get_depth()<self.max_depth)
         
     def parameter_initialization(self, image):
         # takes the image in the ordinary (e.g. N x b), rather than nmf-style 
@@ -1416,11 +1420,499 @@ class DEH():
             denom = np.maximum(denom, 1e-32)
             M_out[:,i] = M[:,i] * num / denom
         return M_out
+    
+    def set_lmda(self):
+        for n in self.nodes:
+            if len(n) > 0:
+                self.nodes[n].lmda = self.nodes[n].map/np.maximum(self.nodes[n[:-1]].map, 1e-10)
+            else:
+                self.nodes[n].lmda = self.nodes[n].map
+                
+                
+    def one_step(self, data, beta=0.1, up_level=0, scaling_factor=2):
+        self.populate_fns( data)
+        for n in self.nodes:
+            self.nodes[n].h_update = 0 
+            self.nodes[n].W_update = np.zeros(len(self.nodes[n].classifier),
+                                              dtype=np.float32) 
+        depth = self.get_depth()
+        
+        for i in range(depth):
+            self.update_from_level(i+1, data, scaling_factor=scaling_factor)
 
+        long_nodes = [n for n in self.nodes]# if len(n)>=up_level]
+        self.lowest_spatial(data, beta=beta)
+        for n in long_nodes:
+            try:
+                self.nodes[n].splitter = [self.nodes[n].splitter[0], self.nodes[n].splitter[1]]
+                self.nodes[n].splitter[0] += beta*self.nodes[n].W_update
+                self.nodes[n].splitter[1] += beta*self.nodes[n].h_update
+            except AttributeError:
+                pass
+
+        for n in self.nodes:
+            self.nodes[n].h_update = 0 
+            self.nodes[n].W_update = np.zeros(len(self.nodes[n].classifier),
+                                                  dtype=np.float32) 
+            try:
+                del self.nodes[n].fns
+            except AttributeError:
+                pass
+            
+    def populate_fns(self, data, target='W'):
+        self.predict(data)
+        self.set_lmda()
+        depth = self.get_depth()
+        for i in range(depth):
+            print("depth of ", i)
+            if target == 'W':
+                self.fn_level(i)
+            elif target == 'S':
+                for n in self.nodes:
+                    try: 
+                        self.nodes[n].fns[n]= 0*self.nodes[''].map
+                    except AttributeError:
+                        self.nodes[n].fns = {n:0*self.nodes[''].map}
+                self.fn_level_S( i)
+            else:
+                print("invalid target")
+                
+                
+    def fn_initialize(self, level):
+        nodes = [j for j in self.nodes if len(j)==(level)]
+        nal = [j for j in self.nodes if len(j)==(level+1)]
+        for n in nodes:
+            if n+'1' in self.nodes:
+                self.nodes[n].fns = {m:0*self.nodes[''].map for m in nal}
+                m = n+'1'
+                dl = -(np.abs(self.nodes[m].lmda-0.5)<0.5).astype(np.float32)
+                fn = self.nodes[n].map.astype(np.float32)
+                fn = np.multiply(fn, dl)
+                self.nodes[n].fns[m] = fn
+                m = n+'0'
+                dl = (np.abs(self.nodes[m].lmda-0.5)<0.5).astype(np.float32)
+                fn = self.nodes[n].map.astype(np.float32)
+                fn = np.multiply(fn, dl)
+                self.nodes[n].fns[m] = fn
+            elif n+'0' in self.nodes:
+                self.nodes[n].fns = {m:0*self.nodes[''].map for m in nal}
+                
+                
+    def fn_level(self, level, balanced=False):
+        nal = [j for j in self.nodes if len(j)==(level+1)]
+        for n in self.nodes:
+            if len(n)==level:
+                if n+'1' in self.nodes:
+                    self.nodes[n].fns = {m:0*self.nodes[''].map for m in nal}
+                    m = n+'1'
+                    dl = -(np.abs(self.nodes[m].lmda-0.5)<0.5).astype(np.float32)
+                    fn = self.nodes[n].map.astype(np.float32)
+                    fn = np.multiply(fn, dl)
+                    if balanced:
+                        fn /= np.sum(self.nodes[m].map)/np.sum(self.nodes[n].map)
+                    self.nodes[n].fns[m] = fn
+                    m = n+'0'
+                    dl = (np.abs(self.nodes[m].lmda-0.5)<0.5).astype(np.float32)
+                    fn = self.nodes[n].map.astype(np.float32)
+                    fn = np.multiply(fn, dl)
+                    if balanced:
+                        fn /= np.sum(self.nodes[m].map)/np.sum(self.nodes[n].map)
+                    self.nodes[n].fns[m] = fn
+            if len(n) < level:
+                #nall = [j for j in self.nodes if len(j)==level-1]
+                outshape = self.nodes[n].classifier.shape + self.nodes[n].map.shape
+                try:
+                    fnsum = np.array([np.outer(self.nodes[o].classifier, self.nodes[n].fns[o]) \
+                                    for o in self.nodes[n].fns if len(o)==level-1]).reshape((-1,) + outshape)
+                    fnsum = np.sum(fnsum, axis=0)
+                except (AttributeError, KeyError):
+                    print("it is ", n)
+                    fnsum = np.zeros((len(self.nodes[n].classifier), len(self.nodes[n].map)))
+                for m in nal:
+                    if m[:-1] + '1' in nal:
+                        print(n, m)
+                        try:
+                            fna = self.nodes[n].fns[m[:-1]]*self.nodes[m].lmda
+                        except AttributeError:
+                            fna = np.zeros((len(self.nodes[n].classifier), len(self.nodes[n].map)))
+                        fnb = self.nodes[m[:-1]].map 
+                        dl = ((-1)**int(m[-1]))*(np.abs(self.nodes[m].lmda-0.5)<0.5).astype(np.float32)
+                        fnb = np.multiply(dl, fnb)
+                        fnc = fnb*np.dot(self.nodes[m[:-1]].splitter[0], fnsum)
+                        fn = fna- fnc #was +#
+                        try:
+                            self.nodes[n].fns[m] = fn
+                        except AttributeError:
+                            pass
+        return 0
+    
+    def fn_level_S(self, level):
+        nal = [j for j in self.nodes if len(j)==(level+1)]
+        for n in self.nodes:
+            if len(n)==level:
+                self.nodes[n].fns = {}
+                for m in nal:
+                    if m[:-1]==n:
+                        dl = ((-1)**int(m[-1]))*(np.abs(self.nodes[m].lmda-0.5)<0.5).astype(np.float32)
+                        fn = self.nodes[n].map.astype(np.float32)
+                        fn = np.multiply(np.multiply(fn, dl), 1-fn)
+                        self.nodes[n].fns[m] = fn
+                    else:
+                        dl = ((-1)**int(m[-1]))*(np.abs(self.nodes[m].lmda-0.5)<0.5).astype(np.float32)
+                        fn = self.nodes[n].map.astype(np.float32)
+                        fn = np.multiply(np.multiply(fn, dl),
+                                         -self.nodes[m[:-1]].map.astype(np.float32))
+                        self.nodes[n].fns[m] = fn
+            if len(n) < level:
+                #nall = [j for j in self.nodes if len(j)==level-1]
+                fnsum = np.array([np.outer(self.nodes[o].classifier, self.nodes[n].fns[o]) \
+                                    for o in self.nodes[n].fns if len(o)==level-1]).reshape((-1,
+                                                                  len(self.nodes[n].classifier),
+                                                                   len(self.nodes[n].map)))
+                fnsum = np.sum(fnsum, axis=0)
+                for m in nal:
+                    if m[:-1] + '1' in nal:
+                        fna = self.nodes[n].fns[m[:-1]]*self.nodes[m].lmda 
+                        fnb = self.nodes[m[:-1]].map 
+                        dl = ((-1)**int(m[-1]))*(np.abs(self.nodes[m].lmda-0.5)<0.5).astype(np.float32)
+                        fnb = np.multiply(dl, fnb)
+                        fnc = fnb*np.dot(self.nodes[m[:-1]].splitter[0], fnsum)
+                        fn = fna - fnc # was + 
+                        self.nodes[n].fns[m] = fn
+
+        return 0
+    
+    def update_from_level(self, level, data, scaling_factor = 2):
+        scale = scaling_factor**level/np.sum(scaling_factor**np.arange(self.get_depth()+1))
+        incl_nodes = [n for n in self.nodes if len(n) < level]
+        self.predict(data)
+        eL = self.remainder_at_level(data, level)
+        for n in incl_nodes:
+            try:
+                keys = self.nodes[n].fns.keys()
+                eLn = self.remainder_at_level(data, len(n))
+                incl_keys = [k for k in keys if len(k)==level]
+                spectra = np.array([np.outer(self.nodes[i].classifier,
+                                             self.nodes[n].fns[i]) for i in incl_keys]).sum(axis=0)
+                #print(self.weights.shape, spectra.shape, n)
+                pref = np.multiply(self.weights, np.multiply(eL.T, spectra).sum(axis=0))
+                x_in = self.nodes[n].classifier + eLn
+                self.nodes[n].h_update -= scale*np.mean(pref)
+                W = self.nodes[n].splitter[0]
+                self.nodes[n].W_update -= scale*np.mean(np.multiply(x_in.T, pref), axis=1)*np.sum(W**2)
+            except AttributeError:
+                pass
+            
+            
+    def update_ll(self, data, scaling_factor = 2):
+        level = self.get_depth()
+        scale = scaling_factor**level/np.sum(scaling_factor**np.arange(self.get_depth()+1))
+        incl_nodes = [n for n in self.nodes if len(n) == level-1]
+        self.predict(data)
+        eL = self.remainder_at_level(data, level)
+        for n in incl_nodes:
+            try:
+                keys = self.nodes[n].fns.keys()
+                eLn = self.remainder_at_level(data, len(n))
+                incl_keys = [k for k in keys if len(k)==level]
+                spectra = np.array([np.outer(self.nodes[i].classifier,
+                                         self.nodes[n].fns[i]) for i in incl_keys]).sum(axis=0)
+                #print(self.weights.shape, spectra.shape, n)
+                pref = np.multiply(self.weights, np.multiply(eL.T, spectra).sum(axis=0))
+                x_in = self.nodes[n].classifier + eLn
+                self.nodes[n].h_update -= scale*np.mean(pref)
+                W = self.nodes[n].splitter[0]
+                self.nodes[n].W_update -= scale*np.mean(np.multiply(x_in.T, pref), axis=1)*np.sum(W**2)
+            except AttributeError:
+                pass
+            
+    def lowest_spatial(self, data, beta=0.1):
+        depth = self.get_depth()
+        self.predict(data)
+        self.set_lmda()
+        self.fn_initialize(depth-1)
+        lnodes = [n for n in self.nodes if len(n)==depth-1]
+        for n in lnodes:
+            self.nodes[n].h_update = 0 
+            self.nodes[n].W_update = np.zeros(len(self.nodes[n].classifier),
+                                              dtype=np.float32) 
+        self.update_ll(data)
+        
+        for n in lnodes:
+            try:
+                self.nodes[n].splitter = [self.nodes[n].splitter[0], self.nodes[n].splitter[1]]
+                self.nodes[n].splitter[0] += beta*self.nodes[n].W_update#/pf
+                self.nodes[n].splitter[1] += beta*self.nodes[n].h_update#/pf
+                self.nodes[n].h_update = 0 
+                self.nodes[n].W_update = np.zeros(len(self.nodes[n].classifier),
+                                                  dtype=np.float32) 
+            except AttributeError:
+                pass
+            
+            
+    def one_step_S(self, data, beta=0.1, max_level=-1, up_level=0, scaling_factor=2):
+        self.update_from_level_S_V(data, beta=beta)
+
+        self.populate_fns( data, target='S')
+        for n in self.nodes:
+            self.nodes[n].S_update = np.zeros(len(self.nodes[n].classifier),
+                                              dtype=np.float32)
+
+        if max_level == -1:
+            max_level = self.get_depth()
+        for i in range(max_level-2):
+            self.update_from_level_S_I(i+2, data, scaling_factor=scaling_factor)
+
+        for i in range(max_level-1):
+            self.update_from_level_S_II(i+1, data, scaling_factor=scaling_factor)
+         
+        scaling_factor = np.mean(1/self.weights)
+        long_nodes = [n for n in self.nodes if len(n) >= up_level]
+        for n in long_nodes:
+            try:
+                self.nodes[n].classifier += (beta/10)*scaling_factor*self.nodes[n].S_update
+            except AttributeError:
+                pass
+
+        for n in self.nodes:
+            try:
+                self.nodes[n].classifier[self.nodes[n].classifier<0]=0
+                del self.nodes[n].fns
+            except AttributeError:
+                pass
+            
+    def lowest_level_S(self, data, beta=0.1):
+        d = self.get_depth()
+        for n in self.nodes:
+            self.nodes[n].S_update = np.zeros(len(self.nodes[n].classifier),
+                                                  dtype=np.float32)
+        self.update_from_level_S_V(data, beta=beta)
+        scaling_factor = np.mean(1/self.weights)
+        for n in self.nodes:
+            try:
+                self.nodes[n].classifier += beta*scaling_factor*self.nodes[n].S_update
+                self.nodes[n].S_update = np.zeros(len(self.nodes[n].classifier),
+                                                  dtype=np.float32)
+                self.nodes[n].classifier[self.nodes[n].classifier<0]=0
+            except AttributeError:
+                pass
+            
+    def update_from_level_S_I(self, level, data, scaling_factor = 2):
+        scale = scaling_factor**level/np.sum(scaling_factor**np.arange(self.get_depth()+1))
+        incl_nodes = [n for n in self.nodes if len(n) < level]
+        eL = self.remainder_at_level(data, level)
+        for n in incl_nodes:
+            keys = self.nodes[n].fns.keys()
+            incl_keys = [k for k in keys if len(k)==level]
+            spectra = np.array([np.outer(self.nodes[i].classifier,
+                                     self.nodes[n].fns[i]) for i in incl_keys]).reshape((-1,
+                                                              len(self.nodes[n].classifier),
+                                                              len(self.nodes[n].map))).sum(axis=0)
+            pref = np.multiply(self.weights, np.multiply(eL.T, spectra).sum(axis=0))
+            try:
+                self.nodes[n].S_update -= scale*np.mean(pref)*self.nodes[n].splitter[0]
+            except AttributeError:
+                pass
+            
+    def update_from_level_S_II(self, level, data, scaling_factor = 2):        
+        # then update the same-level nodes
+        eL = self.remainder_at_level(data, level)
+        scale = scaling_factor**level/np.sum(scaling_factor**np.arange(self.get_depth()+1))
+        incl_nodes = [n for n in self.nodes if len(n) == level]
+        for n in incl_nodes:
+            pref = np.multiply(self.weights,
+                               np.multiply(eL.T,
+                                           -self.nodes[n].map))
+            self.nodes[n].S_update -= scale*np.sum(pref, axis=1)/np.maximum(np.sum(self.nodes[n].map), 100)
+            
+    def update_from_level_S_V(self, data, beta = 0.1):
+        # only set up to work on the lowest level
+        # Archetypal -analysis update
+        level = self.get_depth()
+        self.predict(data)
+        eL = self.remainder_at_level(data, level)
+        incl_nodes = [n for n in self.nodes if len(n) == level]
+        incl_classifiers = copy.deepcopy([self.nodes[n].classifier for n in incl_nodes])
+        data_stack = np.vstack([incl_classifiers, data])
+        for n in incl_nodes:
+            lc = self.nodes[n].classifier
+            elo = np.multiply((self.weights*self.nodes[n].map),eL.T).T@(data_stack-lc).T
+            a = np.sum(elo, axis=0)
+            a[ a < 0 ] = 0
+            a /= (len(self.weights)*np.maximum(100,np.sum(self.nodes[n].map)))
+            a *= beta
+            rem =  np.sum(np.multiply(a, data_stack.T), axis=1)
+            classifier_new = self.nodes[n].classifier*(1-a.sum()) + rem
+            self.nodes[n].classifier = classifier_new
+            
+
+            
+    def grow_network_open(self, image, beta, tol, n_update_pts=1000, obj_record=(),
+                          sampling_points=(), scaling_factor=2):
+        self.parameter_initialization(image)
+        self.initialize_nodes(image)
+        self.display_level(1)
+        if len(sampling_points) > 0:
+            self.nodes[''].map = np.ones(len(sampling_points))
+        self.quick_alt_ll(image, beta=beta, n_update_points=n_update_pts,
+                                tol=tol, obj_record=obj_record, sampling_points=sampling_points,
+                         scaling_factor=scaling_factor)
+        
+        #self.lowest_alternating(image, beta=beta, n_update_points=n_update_pts,
+        #                        tol=tol, obj_record=obj_record, sampling_points=sampling_points)
+        self.predict(image)
+        while self.check_splitting():
+            self.add_another_node_layer(image)
+            self.update_spectra(image, self.get_depth(), 'average20')
+            self.quick_alt_ll(image, beta=beta, n_update_points=n_update_pts,
+                                tol=tol, obj_record=obj_record, sampling_points=sampling_points,
+                         scaling_factor=scaling_factor)
+            self.predict(image)
+            self.display_level(self.get_depth())
+            
+            
+    def lowest_alternating(self, data, beta=0.1, tol=0.01, n_update_points=1000, sampling_points=(),
+                      obj_record=()):
+        if len(obj_record)==0:
+            obj_record = []
+        depth = self.get_depth()
+        if len(sampling_points)==0:
+            def evaluate():
+                self.predict(data)
+                eL = self.remainder_at_level(data, depth)
+                obj = (np.sum((eL.T**2), axis=0)*self.weights).mean()
+                return obj
+        else:
+            def evaluate():
+                self.predict(data[sampling_points])
+                eL = self.remainder_at_level(data[sampling_points], depth)
+                obj = (np.sum((eL.T**2), axis=0)*self.weights).mean()
+                return obj
+        delta = 1
+        start = time.time()
+        while delta > tol:
+            #print("restarting loop")
+            obj_orig = evaluate()
+            #print("1st eval", time.time()-start)
+            delta_II = tol + 1
+            obj_sp_orig = obj_orig
+            #print("appending", time.time()-start)
+            obj_record.append([obj_orig, 0, self.get_depth()])
+            local_beta = beta
+            while delta_II > tol:
+                print("back in loop")
+                update_pix = np.random.choice(len(data), n_update_points)
+                #self.weights=self.wf(data[update_pix])
+                #print("starting lowest s", time.time()-start)
+                self.lowest_level_S(data[update_pix],beta=local_beta)
+                #print("done lowest s", time.time()-start)
+                new_obj = evaluate()
+                delta_II = np.abs((obj_sp_orig - new_obj)/obj_sp_orig)
+                print(obj_sp_orig, delta_II)
+                obj_sp_orig = new_obj
+                obj_record.append([new_obj,2, self.get_depth()])
+            delta_II = tol+1
+            local_beta = beta
+            print("out of loop")
+            while delta_II > tol:            
+                update_pix = np.random.choice(len(data), n_update_points)
+                #self.weights=self.wf(data[update_pix])
+                self.lowest_spatial(data[update_pix],beta=local_beta)
+                new_obj = evaluate()
+                delta_II = np.abs((obj_sp_orig - new_obj)/obj_sp_orig)
+                print(obj_sp_orig, new_obj,delta_II, local_beta)
+                obj_sp_orig = new_obj
+                obj_record.append([new_obj, 1, self.get_depth()])
+
+            delta = np.abs((obj_orig - new_obj)/obj_orig)
+            print("big step", obj_orig, new_obj, delta)
+            
+    def quick_alt_ll(self, data, beta=0.1, tol=0.01, n_update_points=200, sampling_points=(),
+                      obj_record=(), up_level=0, scaling_factor=2):
+        if len(obj_record)==0:
+            obj_record = []
+        depth = self.get_depth()
+        if len(sampling_points)==0:
+            def evaluate():
+                self.predict(data)
+                obj = 0
+                lrec = []
+                for i in range(1,depth+1):
+                    eL = self.remainder_at_level(data, i)
+                    lobj = (np.sum((eL.T**2), axis=0)*self.weights).mean()
+                    obj += (scaling_factor**i)*lobj
+                    #print(lobj)
+                    lrec.append(lobj)
+                return obj, lrec
+        else:
+            def evaluate():
+                self.predict(data[sampling_points])
+                obj = 0
+                lrec= []
+                for i in range(1,1+depth):
+                    eL = self.remainder_at_level(data[sampling_points], i)
+                    lobj = (np.sum((eL.T**2), axis=0)*self.weights).mean()
+                    obj += (scaling_factor**i)*lobj
+                    lrec.append(lobj)
+                    #print(lobj)
+                return obj, lrec
+        delta = 1
+        obj_orig, o_scores = evaluate()
+        while delta > tol:
+            update_pix = np.random.choice(len(data), n_update_points)
+            self.lowest_level_S(data[update_pix],beta=beta)
+            self.lowest_spatial(data[update_pix],beta=beta)
+            new_obj, o_scores = evaluate()
+            delta = np.abs((obj_orig - new_obj)/obj_orig)
+            #delta = 0.5*delta + 0.5*halfdelta
+            obj_orig = new_obj
+            obj_record.append([o_scores[-1],1.5, self.get_depth()])
+            print(new_obj,o_scores)
+            
+            
+            
+    def grow_network_closed(self, image, beta, betab, tol, tolb, n_update_pts=1000, scaling_factor=4,
+                    obj_record=(), sampling_points=()):
+        self.parameter_initialization(image)
+        self.initialize_nodes(image)
+        self.display_level(1)
+        if len(sampling_points) > 0:
+            self.nodes[''].map = np.ones(len(sampling_points))
+        #print(self.nodes)
+        self.quick_alt_ll(image, beta=beta, n_update_points=n_update_pts, tol=tol,
+                     obj_record=obj_record, sampling_points=sampling_points)
+        self.predict(image)
+        #print(self.nodes)
+        while self.check_splitting():
+            eL = self.remainder_at_level(image, self.get_depth())
+            self.add_another_node_layer(image)
+            self.update_spectra(image, self.get_depth(), 'average2')
+            for n in self.nodes:
+                if len(n) == (self.get_depth()):
+                    self.nodes[n].classifier = self.nodes[n[:-1]].classifier
+                    self.quick_alt_ll(image, beta=beta/(2**(self.get_depth()-1)), tol=tol/(2**(self.get_depth()-1)),
+                               n_update_points=n_update_pts,
+                               obj_record=obj_record, sampling_points=sampling_points)
+            old_obj = obj_record[-1][0]
+            new_obj = -1
+            while (1 - new_obj/old_obj) > tol:
+                self.quick_alt( image, beta=betab/(2**(self.get_depth()-1)), tol=tolb/(2**(self.get_depth()-1)),
+                      n_update_points=n_update_pts,
+                            sampling_points=samppts, obj_record=obj_record, scaling_factor=scaling_factor)
+                self.quick_alt_ll( image, beta=beta/(1.5**(self.get_depth()-1)), tol=tol/(2**(self.get_depth()-1)),
+                               n_update_points=n_update_pts,
+                               obj_record=obj_record, sampling_points=sampling_points)
+                old_obj = new_obj
+                new_obj = obj_record[-1][0]
+
+            self.predict(image)
+            self.display_level(self.get_depth())
+            
+            
 def classify_from_partition(data, coef, intercept, threshold=0, spread=1):
-        base = (coef@data.T + intercept + 1)/(2)
-        trimmed = np.array(np.maximum(np.minimum(base, 1.0),0), dtype=np.float32)
-        return trimmed
+    base = (coef@data.T + intercept + 1)/(2)
+    trimmed = np.array(np.maximum(np.minimum(base, 1.0),0), dtype=np.float32)
+    return trimmed
     
 def svm_from_classifiers(image, classifier0, classifier1):
     #print(image.shape, classifier0.shape)
