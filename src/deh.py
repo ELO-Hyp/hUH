@@ -9,6 +9,14 @@ import tables as tab
 import src.DR.nmf as nmf
 import time  
 import copy
+import collections
+
+
+def flat(x):
+    if isinstance(x, collections.Iterable):
+        return [a for i in x for a in flat(i)]
+    else:
+        return [x]
 
 class Node():
     def __init__(self, spatial_map, classifier, status=True):
@@ -77,6 +85,67 @@ class DEH():
         self.beta = 0.1 # rate of grad descent
         #self.sf = 253
         #return self
+            
+    def random_init(self, data, n_starting_pts):
+        self.parameter_initialization(data)
+        starting_pix = np.random.choice(len(data), n_starting_pts)
+        groups = [[[i],0] for i in starting_pix]
+        
+        while len(groups) > 1:
+            groups = regroup_1it(data, self.wf(data), groups)
+            
+        ng = groups[0][0]
+        self.nodes[''] = Node(spatial_map=np.ones(n_starting_pts),
+                                  classifier=w_avg(data[flat(ng)],
+                                                   self.wf(data[flat(ng)])))
+        self.nodes[''].origin_pix = ng
+        
+        while self.nodes_2_include():
+            self.add_group_layer(data, self.weights)
+            
+        self.initialize_splitters(data)
+        
+        
+    def add_group_layer(self, dat, weights):
+        nodes = list(self.nodes)
+        d = self.get_depth()
+        for n in nodes:
+            if len(n)==d:
+                if len(self.nodes[n].origin_pix)==2:            
+                    pix1 = self.nodes[n].origin_pix[1]
+                    self.nodes[n+'1'] = Node(spatial_map=np.ones(self.nodes[''].map.shape),
+                                   classifier=w_avg(dat[flat(pix1)], weights[flat(pix1)]))
+                    self.nodes[n+'1'].origin_pix = pix1
+                    pix0 = self.nodes[n].origin_pix[0]
+                else:
+                    pix0 = self.nodes[n].origin_pix
+                self.nodes[n+'0'] = Node(spatial_map=np.ones(self.nodes[''].map.shape),
+                                   classifier=w_avg(dat[flat(pix0)], weights[flat(pix0)]))
+
+                self.nodes[n+'0'].origin_pix = pix0
+        
+        
+    def nodes_2_include(self):
+        d = self.get_depth()
+        to_include = []
+        for n in self.nodes:
+            if len(n)==d:
+                if len(self.nodes[n].origin_pix)==2:
+                    to_include.append(n)
+        return to_include
+
+        
+    def initialize_splitters(self, dat):
+        test1 = svm.LinearSVC(max_iter=100000)
+        for n in self.nodes:
+            if n+'1' in self.nodes:
+                points = flat(self.nodes[n+'0'].origin_pix) + flat(self.nodes[n+'1'].origin_pix)
+                X = dat[points]
+                y = np.zeros(len(points))
+                y[len(flat(self.nodes[n+'0'].origin_pix)):]=1
+                test1.fit(X,y)
+                self.nodes[n].splitter = test1.coef_, test1.intercept_
+        
         
     def check_splitting(self):
         return (len(self.nodes_to_split())>0) and (self.get_depth()<self.max_depth)
@@ -89,15 +158,13 @@ class DEH():
         except AttributeError:
             self.set_weight_function()
             self.weights = self.wf(image)
-            #1/np.sum(np.abs(image)**self.weight_power, axis=1)
-        #self.nodes[''] = Node(spatial_map = np.ones(image.shape[0], dtype=bool),
-        #                      classifier = image.mean(axis=0),
-        #                      status=False)
-        
+
+            
     def set_weight_function(self):
         def wf(image):
             return 1/np.sum(np.abs(image)**self.weight_power, axis=1)
         self.wf = wf
+    
     
     def print_nmax(self, level):
         return 0
@@ -1869,7 +1936,49 @@ class DEH():
             obj_record.append([o_scores[-1],1.5, self.get_depth()])
             print(new_obj,o_scores)
             
-            
+           
+    def quick_alt(self, data, beta=0.1, tol=0.01, n_update_points=200, sampling_points=(),
+                      obj_record=(), up_level=0, scaling_factor=2):
+        if len(obj_record)==0:
+            obj_record = []
+        depth = self.get_depth()
+        if len(sampling_points)==0:
+            def evaluate():
+                self.predict(data)
+                obj = 0
+                lrec = []
+                for i in range(1,depth+1):
+                    eL = self.remainder_at_level(data, i)
+                    lobj = (np.sum((eL.T**2), axis=0)*self.weights).mean()
+                    obj += (scaling_factor**i)*lobj
+                    #print(lobj)
+                    lrec.append(lobj)
+                return obj, lrec
+        else:
+            def evaluate():
+                self.predict(data[sampling_points])
+                obj = 0
+                lrec= []
+                for i in range(1,1+depth):
+                    eL = self.remainder_at_level(data[sampling_points], i)
+                    lobj = (np.sum((eL.T**2), axis=0)*self.weights).mean()
+                    obj += (scaling_factor**i)*lobj
+                    lrec.append(lobj)
+                    #print(lobj)
+                return obj, lrec
+        delta = 1
+        obj_orig, o_scores = evaluate()
+        while delta > tol:
+            update_pix = np.random.choice(len(data), n_update_points)
+            self.one_step(data[update_pix],beta=beta, up_level=up_level, scaling_factor=scaling_factor)
+            self.one_step_S(data[update_pix],beta=beta, up_level=up_level, scaling_factor=scaling_factor)
+            new_obj, o_scores = evaluate()
+            delta = np.abs((obj_orig - new_obj)/obj_orig)
+            #delta = 0.5*delta + 0.5*halfdelta
+            obj_orig = new_obj
+            obj_record.append([o_scores[-1],3, self.get_depth()])
+            print(new_obj,o_scores)
+
             
     def grow_network_closed(self, image, beta, betab, tol, tolb, n_update_pts=1000, scaling_factor=4,
                     obj_record=(), sampling_points=()):
@@ -1890,15 +1999,15 @@ class DEH():
             for n in self.nodes:
                 if len(n) == (self.get_depth()):
                     self.nodes[n].classifier = self.nodes[n[:-1]].classifier
-                    self.quick_alt_ll(image, beta=beta/(2**(self.get_depth()-1)), tol=tol/(2**(self.get_depth()-1)),
-                               n_update_points=n_update_pts,
-                               obj_record=obj_record, sampling_points=sampling_points)
+            self.quick_alt_ll(image, beta=beta/(2**(self.get_depth()-1)), tol=tol/(2**(self.get_depth()-1)),
+                          n_update_points=n_update_pts,
+                          obj_record=obj_record, sampling_points=sampling_points)
             old_obj = obj_record[-1][0]
             new_obj = -1
             while (1 - new_obj/old_obj) > tol:
                 self.quick_alt( image, beta=betab/(2**(self.get_depth()-1)), tol=tolb/(2**(self.get_depth()-1)),
                       n_update_points=n_update_pts,
-                            sampling_points=samppts, obj_record=obj_record, scaling_factor=scaling_factor)
+                            sampling_points=sampling_points, obj_record=obj_record, scaling_factor=scaling_factor)
                 self.quick_alt_ll( image, beta=beta/(1.5**(self.get_depth()-1)), tol=tol/(2**(self.get_depth()-1)),
                                n_update_points=n_update_pts,
                                obj_record=obj_record, sampling_points=sampling_points)
@@ -1914,6 +2023,7 @@ def classify_from_partition(data, coef, intercept, threshold=0, spread=1):
     trimmed = np.array(np.maximum(np.minimum(base, 1.0),0), dtype=np.float32)
     return trimmed
     
+    
 def svm_from_classifiers(image, classifier0, classifier1):
     #print(image.shape, classifier0.shape)
     pw = (classifier1 - classifier0)
@@ -1927,6 +2037,7 @@ def svm_from_classifiers(image, classifier0, classifier1):
     lambdas = np.maximum(0, lambdas)
     return lambdas
 
+
 def classifiers_2_svm(classifier0, classifier1):
     pw = (classifier1 - classifier0)
     
@@ -1937,9 +2048,51 @@ def classifiers_2_svm(classifier0, classifier1):
     
     return w, d
 
+
 def scaled_2class_svm(resid_image, scaling_factors, classifier0, classifier1):
     scaled_image = (resid_image).T / scaling_factors
     scaled_lambdas = svm_from_classifiers(scaled_image, classifier0, classifier1)
     two_classes = [1-scaled_lambdas, scaled_lambdas]
     two_classes *= scaling_factors
     return two_classes
+
+
+def w_avg(pix, weights):
+    num = np.sum(pix.T*weights, axis=1)
+    denom = np.sum(weights)
+    return num/denom
+    
+    
+def group_err(pix, weights):
+    avg = w_avg(pix, weights)
+    diff = pix - avg
+    err = weights*np.sum(diff**2, axis=1)
+    return np.sum(err)
+
+def regroup_1it(pix, weights, groups):
+    #gen f-matrix
+    f_matr = np.zeros((len(groups),len(groups)))
+    for i in range(len(groups)):
+        for j in range(i,len(groups)):
+            pts = flat(groups[i][0])+flat(groups[j][0])
+            #print(pts)
+            f_matr[i,j] = group_err(pix[pts], weights[pts]) 
+            f_matr[i,j] -= groups[i][1] + groups[j][1]
+            f_matr[j,i] = f_matr[i,j] 
+        f_matr[i,i] = np.inf
+        
+    #compute nearest-neighbors
+    NN = np.zeros(f_matr.shape, dtype=bool)
+    for j in range(len(f_matr)):
+        k = np.argmin(f_matr[j])
+        NN[j, k] = True
+    RNN = NN&NN.T
+    
+    new_groups = [x for i, x in enumerate(groups) if RNN[i].sum() == 0]
+    for i in range(len(RNN)):
+        if RNN[i,:i].sum() == 1:
+            k = np.argmax(RNN[i,:i])
+            new_groups.append([[groups[i][0]] + [groups[k][0]],
+                             f_matr[i,k] + groups[i][1] + groups[k][1]])
+    
+    return new_groups
