@@ -1514,6 +1514,7 @@ class DEH():
 
         long_nodes = [n for n in self.nodes]# if len(n)>=up_level]
         self.lowest_spatial(data, beta=beta)
+        L = len(self.nodes[''].classifier)
         for n in long_nodes:
             try:
                 self.nodes[n].splitter = [self.nodes[n].splitter[0], self.nodes[n].splitter[1]]
@@ -1598,7 +1599,7 @@ class DEH():
                                     for o in self.nodes[n].fns if len(o)==level-1]).reshape((-1,) + outshape)
                     fnsum = np.sum(fnsum, axis=0)
                 except (AttributeError, KeyError):
-                    print("it is ", n)
+                    #print("it is ", n)
                     fnsum = np.zeros((len(self.nodes[n].classifier), len(self.nodes[n].map)))
                 for m in nal:
                     if m[:-1] + '1' in nal:
@@ -1669,8 +1670,8 @@ class DEH():
                 #print(self.weights.shape, spectra.shape, n)
                 pref = np.multiply(self.weights, np.multiply(eL.T, spectra).sum(axis=0))
                 x_in = self.nodes[n].classifier + eLn
-                self.nodes[n].h_update -= scale*np.mean(pref)
                 W = self.nodes[n].splitter[0]
+                self.nodes[n].h_update -= scale*np.mean(pref)*np.sum(W**2)
                 self.nodes[n].W_update -= scale*np.mean(np.multiply(x_in.T, pref), axis=1)*np.sum(W**2)
             except AttributeError:
                 pass
@@ -1692,8 +1693,8 @@ class DEH():
                 #print(self.weights.shape, spectra.shape, n)
                 pref = np.multiply(self.weights, np.multiply(eL.T, spectra).sum(axis=0))
                 x_in = self.nodes[n].classifier + eLn
-                self.nodes[n].h_update -= scale*np.mean(pref)
                 W = self.nodes[n].splitter[0]
+                self.nodes[n].h_update -= scale*np.mean(pref)*np.sum(W**2)
                 self.nodes[n].W_update -= scale*np.mean(np.multiply(x_in.T, pref), axis=1)*np.sum(W**2)
             except AttributeError:
                 pass
@@ -1781,8 +1782,9 @@ class DEH():
                                                               len(self.nodes[n].classifier),
                                                               len(self.nodes[n].map))).sum(axis=0)
             pref = np.multiply(self.weights, np.multiply(eL.T, spectra).sum(axis=0))
+            #print(pref.shape)
             try:
-                self.nodes[n].S_update -= scale*np.mean(pref)*self.nodes[n].splitter[0]
+                self.nodes[n].S_update -= np.flatten(scale*np.mean(pref)*self.nodes[n].splitter[0])
             except AttributeError:
                 pass
             
@@ -1989,12 +1991,21 @@ class DEH():
                     obj_record=(), sampling_points=()):
         self.parameter_initialization(image)
         self.initialize_nodes(image)
-        self.display_level(1)
         if len(sampling_points) > 0:
             self.nodes[''].map = np.ones(len(sampling_points))
+        self.predict(image)
+        eL = self.remainder_at_level(image, 0)    
+        pos = np.min(self.nodes[''].classifier - eL, axis=1) > 0
+        big_err = np.argmax(np.sum(eL[pos]**2, axis=1))
+        args = np.argsort(((image - self.nodes[''].classifier)**2).sum(axis=1))
+        self.nodes[''].splitter = classifiers_2_svm(self.nodes[''].classifier - eL[pos][big_err],
+                                                                   self.nodes[''].classifier + eL[pos][big_err])
+        self.nodes['0'].classifier = self.nodes[''].classifier
+        self.nodes['1'].classifier = self.nodes[''].classifier
         self.quick_alt_ll(image, beta=beta, n_update_points=n_update_pts, tol=tol,
                      obj_record=obj_record, sampling_points=sampling_points)
         self.predict(image)
+        self.display_level(1)
         while self.check_splitting():
             eL = self.remainder_at_level(image, self.get_depth())
             self.add_another_node_layer(image)
@@ -2009,20 +2020,30 @@ class DEH():
                                                                    self.nodes[n].classifier + eL[pos][big_err])
                 if len(n) == (self.get_depth()):
                     self.nodes[n].classifier = self.nodes[n[:-1]].classifier
+            
+            print("starting quick ll")
             self.quick_alt_ll(image, beta=beta/(2**(self.get_depth()-1)), tol=tol/(2**(self.get_depth()-1)),
                           n_update_points=n_update_pts,
                           obj_record=obj_record, sampling_points=sampling_points)
+            print("ending quick ll")
             old_obj = obj_record[-1][0]
             new_obj = -1
-            while (1 - new_obj/old_obj) > tol:
+            delta = np.abs(old_obj - new_obj)/old_obj
+            new_obj = old_obj
+            print(delta)
+            while delta > tol:
+                print("starting full")
                 self.quick_alt( image, beta=betab/(2**(self.get_depth()-1)), tol=tolb/(2**(self.get_depth()-1)),
                       n_update_points=n_update_pts,
                             sampling_points=sampling_points, obj_record=obj_record, scaling_factor=scaling_factor)
+                print("starting quick ll")
                 self.quick_alt_ll( image, beta=beta/(1.5**(self.get_depth()-1)), tol=tol/(2**(self.get_depth()-1)),
                                n_update_points=n_update_pts,
                                obj_record=obj_record, sampling_points=sampling_points)
                 old_obj = new_obj
                 new_obj = obj_record[-1][0]
+                delta = np.abs(old_obj - new_obj)/old_obj
+                print(np.abs(old_obj - new_obj)/old_obj)
 
             self.predict(image)
             self.display_level(self.get_depth())
