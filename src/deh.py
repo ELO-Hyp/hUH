@@ -163,7 +163,7 @@ class DEH():
 
         
     def initialize_splitters(self, dat):
-        test1 = svm.LinearSVC(max_iter=100000)
+        test1 = svm.LinearSVC(max_iter=100000, dual=True)
         for n in self.nodes:
             if n+'1' in self.nodes:
                 points = flat(self.nodes[n+'0'].origin_pix) + flat(self.nodes[n+'1'].origin_pix)
@@ -171,7 +171,7 @@ class DEH():
                 y = np.zeros(len(points))
                 y[len(flat(self.nodes[n+'0'].origin_pix)):]=1
                 test1.fit(X,y)
-                self.nodes[n].splitter = test1.coef_, test1.intercept_
+                self.nodes[n].splitter = test1.coef_[0], test1.intercept_
         
     def trim(self, level):
         nodes = list(self.nodes.keys())
@@ -1857,9 +1857,9 @@ class DEH():
             
             
     def one_step_S(self, data, beta=0.1, max_level=-1, up_level=0, scaling_factor=2, alg='complex', max_step_r = 0.01,
-                  n_update_points=0):
+                  n_update_points=0, attenuation=1):
         
-        self.update_from_level_S_V(data, beta=beta, alg=alg, n_update_points=n_update_points)
+        self.update_from_level_S_V(data, beta=beta, alg=alg, n_update_points=n_update_points, attenuation=attenuation)
 
         #if alg=='complex':
         #    self.populate_fns( data, target='S', alg=alg)
@@ -1946,7 +1946,8 @@ class DEH():
                                            -self.nodes[n].map))
             self.nodes[n].S_update -= scale*np.sum(pref, axis=1)/np.maximum(np.sum(self.nodes[n].map), 100)
             
-    def update_from_level_S_V(self, data, beta = 0.1, alg='complex', a_len_max=0.01, n_update_points=0):
+    def update_from_level_S_V(self, data, beta = 0.1, alg='complex', a_len_max=0.01, n_update_points=0,
+                             attenuation = 1):
         # only set up to work on the lowest level
         # Archetypal -analysis update
         # dependence on beta removed via line search
@@ -1962,8 +1963,7 @@ class DEH():
         if n_update_points>0:
             occs = {}
             for n in self.nodes:
-                if len(n)==level:
-                    occs[n] = self.nodes[n].map > 0
+                occs[n] = self.nodes[n].map 
                     
         eL = self.remainder_at_level(data, level)
         #for pix in data:S
@@ -1971,10 +1971,12 @@ class DEH():
         #    incl_nodes = ['1']
         for n in incl_nodes:
             if n_update_points > 0:
-                print(n)
                 om = occs[n]
-                update_pix = np.random.choice(om.sum(), np.minimum(n_update_points, np.sum(om)))
-                ldata = data[om][update_pix]
+                #om = om > 0
+                #update_pix = np.random.choice(om.sum(), np.minimum(n_update_points, np.sum(om)))
+                update_pix = rand_sel(om, n_update_points)
+                ldata = data[update_pix]
+                #ldata = data[om][update_pix]
                 self.simple_predict(ldata)
             else:
                 ldata = data
@@ -1982,17 +1984,25 @@ class DEH():
             lc = self.nodes[n].classifier
             rem = ldata-lc # to throw errors if there is a bug
             #eXdelta = rem@eL.T
-            elo_sum = np.sum(np.multiply((self.weights*self.nodes[n].map).T, eL.T), axis=1)
+            if n_update_points > 0:
+                elo_sum = np.sum(np.multiply((self.weights).T, eL.T), axis=1)
+            else:
+                elo_sum = np.sum(np.multiply((self.weights*self.nodes[n].map).T, eL.T), axis=1)
             elo = elo_sum@rem.T
             #norm = np.array([i@i for i in rem])
             #elo = np.multiply((self.weights*self.nodes[n].map).T,eXdelta)#.T@rem.T
             #elo_sum = elo.sum#eld = np.array([elo[i,i] for i in range(len(elo))])
-            denom_2_sum = self.weights * self.nodes[n].map**2 + 1e-16
+            if n_update_points > 0:
+                denom_2_sum = self.weights * self.nodes[n].map + 1e-16
+            else:
+                denom_2_sum = self.weights * self.nodes[n].map**2 + 1e-16
+            #denom_adj = self.weights[i] * self.nodes[n].map[i]**2
             denom = np.sum(denom_2_sum)
             norm = np.array([i@i for i in rem]) +1e-16
+            #self_int = np.array([self.weights[i]*self.nodes[n].map[i]*rem[i]@eL[i] for i in range(len(rem))])
             #print(len(norm),'norm')
             #slope = np.sum((eL.T*self.weights*self.nodes[n].map).T@rem.T, axis=1)
-            a = elo/(denom*norm)#np.sum(elo-np.diag(eld), axis=1)/(denom*norm)
+            a = (elo)/(denom*norm)#np.sum(elo-np.diag(eld), axis=1)/(denom*norm)
             a_keep = ((a<1) & (a>0)) #& (slope < 0)
             a = np.maximum(np.minimum(a, 1),0)
             #a_plus = a > 0
@@ -2017,6 +2027,7 @@ class DEH():
                 #print(top_sum, np.sum(denom_2_sum))
                 beta = top_sum #/ np.sum(denom_2_sum)
                 beta = np.minimum(np.maximum(beta,0),1)
+                beta /= attenuation
                 print(n, beta, time.time() - start)
                 classifier_new = self.nodes[n].classifier + beta*rem[best_sig2]
                 #eL += np.outer(self.nodes[n].map, beta*rem[best_sig])
@@ -2172,7 +2183,7 @@ class DEH():
             delta = np.abs((obj_orig - new_obj)/obj_orig)
             #delta = 0.5*delta + 0.5*halfdelta
             obj_orig = new_obj
-            obj_record.append([o_scores[-1],1.5, self.get_depth(), o_scores[0], o_scores[0]])
+            obj_record.append([o_scores[-1],1.5, self.get_depth(), o_scores[0], o_scores[1]])
             print(new_obj,o_scores)
           
         
@@ -2239,7 +2250,7 @@ class DEH():
             #update_pix = np.random.choice(len(data), np.minimum(len(data), n_update_points))
             #self.one_step(data[update_pix],beta=beta, up_level=up_level, scaling_factor=scaling_factor, alg=alg)
             self.one_step_S(data,beta=beta, up_level=up_level, scaling_factor=scaling_factor, alg=alg,
-                           n_update_points = n_update_points)
+                           n_update_points = n_update_points, attenuation=1)
             #update_pix = np.random.choice(len(data), n_update_points)
             #self.one_step_cyclic(data[update_pix], scaling_factor=scaling_factor)
             self.one_step_cyclic(data, scaling_factor=scaling_factor, n_update_points=n_update_points)
@@ -2317,7 +2328,7 @@ class DEH():
                 self.predict(image)
             elif alg=='simple':
                 self.simple_predict(image)
-            self.update_from_level_S_V(image, alg='simple')
+            #self.update_from_level_S_V(image, alg='simple', attenuation=2)
             print("starting quick ll")
             #self.quick_alt_ll(image, beta=beta/(2**(self.get_depth()-1)), tol=tol/(2**(self.get_depth()-1)),
             #              n_update_points=n_update_pts,
@@ -2403,38 +2414,43 @@ class DEH():
 
         return out
     
-    def node_grad(self, node, data, scaling_factor=2, var='W'):
+    def node_grad(self, node, data, scaling_factor=2, var='W', metropolis=False):
         self.simple_predict(data)
         
-        self.populate_fns(data, alg='simple')
+        #self.populate_fns(data, alg='simple')
         depth = self.get_depth()
         eL = self.remainder_at_level(data, depth)
         print('err', np.sum(np.multiply((eL**2).T, self.weights), axis=0).mean())
-        for i in range(depth):
-            #print("updateing", i)
-            self.update_from_level(i+1, data, scaling_factor=scaling_factor, alg='simple')
+        #for i in range(depth):
+        #    #print("updateing", i)
+        #    self.update_from_level(i+1, data, scaling_factor=scaling_factor, alg='simple')
         
         factors = 1.0 * scaling_factor**np.arange(depth + 1)
         factors /= np.sum(factors)
         
         init_incl = np.abs(self.nodes[node+'0'].lmda - 0.5) < 0.5
-        print(node, var, ' include ', np.sum(init_incl))
-        num = np.zeros(data.shape) 
-        factor_sum = 0
-        for i in range(len(node)+1,depth+1):
-            eL = self.remainder_at_level(data, i)
-            out = self.aggregate_node_at_level(node, i, data)
-            werr = np.sum(np.multiply(eL, out), axis=1)*self.nodes[node].map
-            werr_w = np.multiply(self.weights, werr)
-            #nl = np.multiply(self.weights, np.multiply(np.sum(out**2, axis=1), xw**2))
-            num += factors[i]*np.multiply(data.T, werr_w).T
-            #factor_sum += factors[i]
-            #denom += factors[i]*nl*self.nodes[node].map**2
-        plt.plot(np.mean(num[init_incl], axis=0)/np.sum(np.mean(num[init_incl], axis=0)))
-        plt.plot(self.nodes[node].W_update/np.sum(self.nodes[node].W_update),'--')
-        plt.show()
-        #self.nodes[node].W_update = np.mean(num, axis=0)
         
+        if var=='W':
+            #print(node, var, ' include ', np.sum(init_incl))
+            num = np.zeros(data.shape) 
+            #factor_sum = 0
+            for i in range(len(node)+1,depth+1):
+                eL = self.remainder_at_level(data, i)
+                out = self.aggregate_node_at_level(node, i, data)
+                if metropolis:
+                    werr = np.sum(np.multiply(eL, out), axis=1)
+                else:
+                    werr = np.sum(np.multiply(eL, out), axis=1)*self.nodes[node].map
+                werr_w = np.multiply(self.weights, werr)
+                #nl = np.multiply(self.weights, np.multiply(np.sum(out**2, axis=1), xw**2))
+                num += factors[i]*np.multiply(data.T, werr_w).T
+                #factor_sum += factors[i]
+                #denom += factors[i]*nl*self.nodes[node].map**2
+            #plt.plot(np.mean(num[init_incl], axis=0)/np.sum(np.mean(num[init_incl], axis=0)))
+            #plt.plot(self.nodes[node].W_update/np.sum(self.nodes[node].W_update),'--')
+            #plt.show()
+            self.nodes[node].W_update = -np.mean(num[init_incl], axis=0)
+
         if var=='W':
             #print(self.nodes[node].W_update)
             xw = data@self.nodes[node].W_update/2
@@ -2456,8 +2472,12 @@ class DEH():
             werr = np.sum(np.multiply(eL, out), axis=1)
             werr_w = np.multiply(np.multiply(self.weights, werr), xw)
             nl = np.multiply(self.weights, np.multiply(np.sum(out**2, axis=1), xw**2))
-            num += factors[i]*werr_w*self.nodes[node].map
-            denom += factors[i]*nl*self.nodes[node].map**2
+            if metropolis:
+                num += factors[i]*werr_w#*self.nodes[node].map
+                denom += factors[i]*nl*self.nodes[node].map
+            else:    
+                num += factors[i]*werr_w*self.nodes[node].map
+                denom += factors[i]*nl*self.nodes[node].map**2
 
         
         if np.sum(init_incl)==0:
@@ -2516,10 +2536,11 @@ class DEH():
             
         self.simple_predict(data)
         eL = self.remainder_at_level(data, depth)
+        print(node, var, ' include ', np.sum(init_incl))
+        
         print('err', np.sum(np.multiply((eL**2).T, self.weights), axis=0).mean())
         
         init_incl = np.abs(self.nodes[node+'0'].lmda - 0.5) < 0.5
-        print(node, var, ' include ', np.sum(init_incl))
         if np.sum(init_incl)==0:
             self.nodes[node].splitter = old_splitter
             return -1
@@ -2537,8 +2558,9 @@ class DEH():
             prop_map = {}
             for n in nodes:
                 if len(n) >= 0:
-                    prop_map[n] = self.nodes[n].map>0
-        for level in range(start, depth):
+                    prop_map[n] = self.nodes[n].map
+                    #prop_map[n] = self.nodes[n].map>0
+        for level in range(depth-1, start-1, -1):
             for n in nodes:
                 if len(n)==level:
                     if n+'1' in nodes:
@@ -2547,16 +2569,51 @@ class DEH():
                                               dtype=np.float32)
                         #plt.plot(self.nodes[n].splitter[0])
                         if n_update_points > 0:
-                            pm = prop_map[n]
-                            update_pix = np.random.choice(np.sum(pm),
-                                                          np.minimum(np.sum(pm), n_update_points))
-                            self.node_grad(n, data[pm][update_pix], scaling_factor=scaling_factor, var='W')
-                            self.node_grad(n, data[pm][update_pix], scaling_factor=scaling_factor, var='h')
+                            pm = prop_map[n] #> 0
+                            pm_max = np.minimum(prop_map[n+'0'].max(), prop_map[n+'1'].max())
+                            print(pm_max, 'pmmax', n)
+                            if pm_max > 0.1:
+                                update_pix = rand_sel(pm, n_update_points)
+                                #update_pix = np.random.choice(np.sum(pm),
+                                #                              np.minimum(np.sum(pm), n_update_points))
+                                self.node_grad(n, data[update_pix], scaling_factor=scaling_factor, var='W',
+                                              metropolis=True)
+                                self.node_grad(n, data[update_pix], scaling_factor=scaling_factor, var='h',
+                                              metropolis=True)
+                            else:
+                                self.nodes[n].splitter = [self.nodes[n].splitter[0]*0,
+                                                          self.nodes[n].splitter[1]*0]
                         else:
                             self.node_grad(n, data, scaling_factor=scaling_factor, var='W')
                             self.node_grad(n, data, scaling_factor=scaling_factor, var='h')
                         #plt.plot(self.nodes[n].splitter[0])
                         #plt.show()
+                        
+    def node_stats(self):
+        lengths ={}
+        for n in self.nodes:
+            try:
+                lengths[len(n)] += 1
+            except KeyError:
+                lengths[len(n)] = 1
+        for l in lengths:
+            print(l, lengths[l], lengths[l]/2**l)
+        return lengths
+
+    
+    def error_stats(self, data):
+        depth = self.get_depth()
+        errors = {}
+        self.simple_predict(data)
+        for l in range(depth+1):
+            eL = self.remainder_at_level( data, l )
+            total_err = np.sum(self.weights * eL.T**2)
+            pointwise_err = total_err / len(data)
+            errors[l] = pointwise_err
+        for l in errors:
+            print(l, errors[l])
+        return errors
+            
     
     
 def find_opt_beta(intercepts, initial_include, num_weights, denom_weights):
@@ -2689,3 +2746,35 @@ def regroup_1it(pix, weights, groups):
                              f_matr[i,k] + groups[i][1] + groups[k][1]])
     
     return new_groups
+
+
+def rand_sel(qprob_map, number_of_pixels):
+    '''
+    randomly selects number_of_pixels according to qprob_map probability distribution
+    '''
+    p_sum = np.sum(qprob_map)
+    #prange = np.arange(len(qprob_map))
+    pprob = qprob_map[qprob_map>0]
+    if len(pprob) == 0:
+        print("endmember has collapsed")
+        print(qprob_map.max())
+        return -1
+    prange = np.arange(len(qprob_map))[qprob_map>0]
+    pix = list(np.sort(np.random.rand(number_of_pixels)))
+    tally = 0
+    pixlist = []
+    #print(pprob.shape, pprob)
+    pixel = pix.pop(0)
+    i = 0
+    while (pixel >= 0):
+        tally += pprob[i]/p_sum
+        #print(tally, pixel, i)
+        try:
+            while pixel < tally:
+                pixlist.append(prange[i])
+                pixel = pix.pop(0)
+        except IndexError:
+            pixel = -1.0
+        i += 1
+
+    return pixlist
