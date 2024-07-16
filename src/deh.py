@@ -19,7 +19,7 @@ def flat(x):
 
 class Node():
     def __init__(self, spatial_map, classifier, status=True):
-        self.map = spatial_map
+        self.map = spatial_map.astype(np.float16)
         self.classifier = classifier
         #elf.splitter = None
         #self.status=status # True = open, False = closed
@@ -86,8 +86,9 @@ class DEH():
         #self.sf = 253
         #return self
             
-    def random_init(self, data, n_starting_pts):
+    def random_init(self, data, n_starting_pts, seed=0):
         self.parameter_initialization(data)
+        np.random.seed = seed
         starting_pix = np.random.choice(len(data), n_starting_pts)
         groups = [[[i],0] for i in starting_pix]
         
@@ -358,7 +359,7 @@ class DEH():
         for level in range(depth+1):
             self.update_spectra(data, level, utype)
           
-        f
+        
     def ff_norm_S(self):
         end_nodes = self.get_end_nodes()
         S = np.zeros((len(end_nodes), len(self.nodes[''].map)), dtype=np.float32)
@@ -490,26 +491,34 @@ class DEH():
         S = np.array(S)
         return S 
     
-    def simple_predict(self, image):
+    def simple_predict(self, image, all_nodes = False):
         #if image.shape[0] != self.weights.shape[0]:
-        self.weights = self.wf(image)
+        try:
+            self.weights = self.wf(image)
+        except AttributeError:
+            self.set_weight_function()
+            self.weights = self.wf(image)
         nodes = list(self.nodes.keys())
         nodes.sort()
-        self.nodes[''].lmda = np.ones(image.shape[0])
+        self.nodes[''].lmda = np.ones(image.shape[0], dtype=np.float16)
         for n in nodes:
             if n + '1' in nodes: #self.nodes[n].map = np.ones(image.shape[0])
                 lmda = classify_from_partition(image, self.nodes[n].splitter[0],
                                     self.nodes[n].splitter[1])
-                self.nodes[n+'1'].lmda = lmda
-                self.nodes[n+'0'].lmda = 1-lmda
+                self.nodes[n+'1'].lmda = lmda.astype(np.float16)
+                self.nodes[n+'0'].lmda = (1-lmda).astype(np.float16)
             elif n+'0' in nodes:
-                self.nodes[n+'0'].lmda = np.ones(image.shape[0])
-        self.nodes[''].map = np.ones(image.shape[0])
+                self.nodes[n+'0'].lmda = np.ones(image.shape[0], dtype=np.float16)
+        self.nodes[''].map = np.ones(image.shape[0], dtype=np.float16)
         self.lmda_2_map()
         
         S = []
-        self.get_end_nodes()
-        for i in self.end_nodes:
+        if all_nodes:
+            nodes = list(self.nodes.keys())
+            nodes.sort()
+        else:
+            nodes = self.get_end_nodes()
+        for i in nodes:
             S.append(self.nodes[i].map)
         S = np.array(S)
         return S
@@ -1139,7 +1148,7 @@ class DEH():
         except AttributeError:
             print("no splitter to delete on ", node[:-1])
         all_nodes = list(self.nodes.keys())
-        print(all_nodes)
+        #print(all_nodes)
         if (node[-1]=='0')&((node[:-1] + '1') in all_nodes):
             twin = (node[:-1] + '1')
             l = len(twin)
@@ -1168,7 +1177,8 @@ class DEH():
                         self.nodes.pop(i)
             
         else:
-            self.nodes.pop(node)            
+            self.nodes.pop(node) 
+            all_nodes = list(self.nodes.keys())
             for i in all_nodes:
                 if (node in i):
                     if i[:len(node)]==node:
@@ -1356,11 +1366,12 @@ class DEH():
             
         return S
 
-    def display_level(self, level):
+    def display_level(self, level, original=''):
         count=0
         for i in self.nodes:
             if len(i)==level:
-                count += 1
+                if i[:len(original)]==original:
+                    count += 1
         print(count)
 
         fig, ax = plt.subplots(count, figsize=(8,2*count))
@@ -1371,11 +1382,12 @@ class DEH():
         counter = 0
         for i in self.nodes:
             if len(i)==level:
-                ax[counter].imshow(np.rot90(self.nodes[i].map.reshape(self.plot_size)),
-                                   aspect=self.plot_aspect, vmin=0, vmax=1, interpolation='nearest')
-                ax[counter].set_ylabel(self.nodes[i].map.sum())
-                ax[counter].set_title(i + " {:.2f}".format(self.nodes[i].map.max()))
-                counter += 1
+                if i[:len(original)]==original:
+                    ax[counter].imshow(np.rot90(self.nodes[i].map.reshape(self.plot_size)),
+                                       aspect=self.plot_aspect, vmin=0, vmax=1, interpolation='nearest')
+                    ax[counter].set_ylabel(self.nodes[i].map.astype(np.float32).sum())
+                    ax[counter].set_title(i + " {:.2f}".format(self.nodes[i].map.max()))
+                    counter += 1
         plt.show()
                 
     
@@ -1439,7 +1451,7 @@ class DEH():
             print('node {} as no children'.format(node))
             
             
-    def save(self, filename, title='Deep Endmember Hierarchy', save_labels=()):
+    def save(self, filename, title='Unmixing Hierarchy', save_labels=()):
         d = self.get_depth()
         
         class Save_Node(tab.IsDescription):
@@ -1485,6 +1497,10 @@ class DEH():
             table.attrs.double_fit=self.double_fit
             table.attrs.approach_rate=self.approach_rate
             table.attrs.spread = self.spread
+            table.attrs.plot_x = self.plot_size[0]
+            table.attrs.plot_y = self.plot_size[1]
+            table.attrs.plot_aspect = self.plot_aspect
+            table.attrs.weight_power = self.weight_power
             if len(save_labels)>0:
                 table.attrs.cluster_labels = save_labels
             #self.plot_size = (239,171)
@@ -1498,17 +1514,28 @@ class DEH():
         return 0
     
     def load(self, filename):
-        self.h5file = tab.open_file(filename, mode='a')
+        self.h5file = tab.open_file(filename, mode='r')
         table = self.h5file.root.nodes
         for row in table.iterrows():
             node = row['name'].decode('ascii')
-            self.nodes[node] = Node(None, row['classifier'])
+            self.nodes[node] = Node(np.array([0]), row['classifier'])
             if np.sum(np.abs(row['splitter_w'])) > 0:
                 self.nodes[node].splitter = (row['splitter_w'], row['intercept']) 
+        try:
+            self.plot_size = (self.h5file.root.nodes.attrs.plot_x,
+                          self.h5file.root.nodes.attrs.plot_y)
+            self.plot_aspect = self.h5file.root.nodes.attrs.plot_aspect
+        except AttributeError:
+            pass
+        self.h5file.close()
                 
-    def display_spectra(self, spectra_list, names = (), wl=(), normalizer = 1, **kwargs):
+    def display_spectra(self, spectra_list=(), names = (), wl=(), normalizer = 1, **kwargs):
+        if len(spectra_list)==0:
+            spectra_list = [i for i in self.nodes if len(i)==self.get_depth()]
         if len(wl)==0:
             wl = np.arange(len(self.nodes[''].classifier))
+        if len(names)==0:
+            names = spectra_list
         for i, x in enumerate(spectra_list):
             if len(names)==len(spectra_list):
                 plt.plot(wl, self.nodes[x].classifier/normalizer, label = names[i])
@@ -1857,65 +1884,69 @@ class DEH():
             
             
     def one_step_S(self, data, beta=0.1, max_level=-1, up_level=0, scaling_factor=2, alg='complex', max_step_r = 0.01,
-                  n_update_points=0, attenuation=1):
+                  n_update_points=0, attenuation=1, occs=()):
         
-        self.update_from_level_S_V(data, beta=beta, alg=alg, n_update_points=n_update_points, attenuation=attenuation)
+        levels = [i for i in range(1,self.get_depth()+1)]
+        self.update_from_level_S_V(data, beta=beta, alg=alg, n_update_points=n_update_points, attenuation=attenuation,
+                                  levels=levels, occs=occs)
 
         #if alg=='complex':
         #    self.populate_fns( data, target='S', alg=alg)
-        for n in self.nodes:
-            self.nodes[n].S_update = np.zeros(len(self.nodes[n].classifier),
-                                              dtype=np.float32)
+        #for n in self.nodes:
+        #    self.nodes[n].S_update = np.zeros(len(self.nodes[n].classifier),
+        #                                      dtype=np.float32)
 
-        if max_level == -1:
-            max_level = self.get_depth()
+        #if max_level == -1:
+        #    max_level = self.get_depth()
         #if alg=='complex':
         #    for i in range(max_level-2):
         #        self.update_from_level_S_I(i+2, data, scaling_factor=scaling_factor)
         
-        if n_update_points > 0:
-            update_pix = np.random.choice(len(data), n_update_points)
-            for i in range(max_level-1):
-                self.update_from_level_S_II(i+1, data[update_pix], scaling_factor=scaling_factor)
-        else:
-            for i in range(max_level-1):
-                self.update_from_level_S_II(i+1, data, scaling_factor=scaling_factor)
+        
+        
+        #if n_update_points > 0:
+        #    update_pix = np.random.choice(len(data), n_update_points)
+        #    for i in range(max_level-1):
+        #        self.update_from_level_S_II(i+1, data[update_pix], scaling_factor=scaling_factor)
+        #else:
+        #    for i in range(max_level-1):
+        #        self.update_from_level_S_II(i+1, data, scaling_factor=scaling_factor)
          
-        scaling_factor = np.mean(1/self.weights)
-        long_nodes = [n for n in self.nodes if len(n) >= up_level]
-        for n in long_nodes:
-            try:
-                step = (beta)*scaling_factor*self.nodes[n].S_update
-                step_mag = np.sum(np.abs(step))
+        #scaling_factor = np.mean(1/self.weights)
+        #long_nodes = [n for n in self.nodes if len(n) >= up_level]
+        #for n in long_nodes:
+        #    try:
+        #        step = (beta)*scaling_factor*self.nodes[n].S_update
+        #        step_mag = np.sum(np.abs(step))
                 #print(step_mag)
-                if step_mag / np.sum(self.nodes[n].classifier) > max_step_r:
-                    step = step / step_mag * max_step_r
-                self.nodes[n].classifier += step
-            except AttributeError:
-                pass
+        #        if step_mag / np.sum(self.nodes[n].classifier) > max_step_r:
+        #            step = step / step_mag * max_step_r
+        #        self.nodes[n].classifier += step
+        #    except AttributeError:
+        #        pass
 
-        for n in self.nodes:
-            try:
-                self.nodes[n].classifier[self.nodes[n].classifier<0]=0
-                del self.nodes[n].fns
-            except AttributeError:
-                pass
+        #for n in self.nodes:
+        #    try:
+        #        self.nodes[n].classifier[self.nodes[n].classifier<0]=0
+        #        del self.nodes[n].fns
+        #    except AttributeError:
+        #        pass
             
-    def lowest_level_S(self, data, beta=0.1, alg='complex'):
+    def lowest_level_S(self, data, beta=0.1, alg='complex', n_update_points=0, occs=()):
         d = self.get_depth()
         for n in self.nodes:
             self.nodes[n].S_update = np.zeros(len(self.nodes[n].classifier),
                                                   dtype=np.float32)
-        self.update_from_level_S_V(data, beta=beta, alg=alg)
-        scaling_factor = np.mean(1/self.weights)
-        for n in self.nodes:
-            try:
-                self.nodes[n].classifier += beta*scaling_factor*self.nodes[n].S_update
-                self.nodes[n].S_update = np.zeros(len(self.nodes[n].classifier),
-                                                  dtype=np.float32)
-                self.nodes[n].classifier[self.nodes[n].classifier<0]=0
-            except AttributeError:
-                pass
+        self.update_from_level_S_V(data, beta=beta, alg=alg, n_update_points=n_update_points, occs=occs)
+        #scaling_factor = np.mean(1/self.weights)
+        #for n in self.nodes:
+        #    try:
+        #        self.nodes[n].classifier += beta*scaling_factor*self.nodes[n].S_update
+        #        self.nodes[n].S_update = np.zeros(len(self.nodes[n].classifier),
+        #                                          dtype=np.float32)
+        #        self.nodes[n].classifier[self.nodes[n].classifier<0]=0
+        #    except AttributeError:
+        #        pass
             
     def update_from_level_S_I(self, level, data, scaling_factor = 2):
         scale = scaling_factor**level/np.sum(scaling_factor**np.arange(self.get_depth()+1))
@@ -1947,97 +1978,117 @@ class DEH():
             self.nodes[n].S_update -= scale*np.sum(pref, axis=1)/np.maximum(np.sum(self.nodes[n].map), 100)
             
     def update_from_level_S_V(self, data, beta = 0.1, alg='complex', a_len_max=0.01, n_update_points=0,
-                             attenuation = 1):
+                             attenuation = 1, levels=(-1,), occs=()):
         # only set up to work on the lowest level
         # Archetypal -analysis update
         # dependence on beta removed via line search
         start = time.time()
-        level = self.get_depth()
-        if alg=='complex':
-            self.predict(data)
-        elif alg=='simple':
-            self.simple_predict(data)
-        incl_nodes = [n for n in self.nodes if len(n) == level]
+        if levels[0]==-1:
+            levels = (self.get_depth(),)
+        #else:
+        #    base_level = level
+        
+            #self.display_level(level)
+        
         #incl_classifiers = copy.deepcopy([self.nodes[n].classifier for n in incl_nodes])
         #data_stack = np.vstack([incl_classifiers, data])
         if n_update_points>0:
-            occs = {}
-            for n in self.nodes:
-                occs[n] = self.nodes[n].map 
-                    
-        eL = self.remainder_at_level(data, level)
-        #for pix in data:S
-        #if '1' in incl_nodes:
-        #    incl_nodes = ['1']
-        for n in incl_nodes:
-            if n_update_points > 0:
-                om = occs[n]
-                #om = om > 0
-                #update_pix = np.random.choice(om.sum(), np.minimum(n_update_points, np.sum(om)))
-                update_pix = rand_sel(om, n_update_points)
-                ldata = data[update_pix]
-                #ldata = data[om][update_pix]
-                self.simple_predict(ldata)
-            else:
-                ldata = data
-            eL = self.remainder_at_level(ldata, level)
-            lc = self.nodes[n].classifier
-            rem = ldata-lc # to throw errors if there is a bug
-            #eXdelta = rem@eL.T
-            if n_update_points > 0:
-                elo_sum = np.sum(np.multiply((self.weights).T, eL.T), axis=1)
-            else:
-                elo_sum = np.sum(np.multiply((self.weights*self.nodes[n].map).T, eL.T), axis=1)
-            elo = elo_sum@rem.T
-            #norm = np.array([i@i for i in rem])
-            #elo = np.multiply((self.weights*self.nodes[n].map).T,eXdelta)#.T@rem.T
-            #elo_sum = elo.sum#eld = np.array([elo[i,i] for i in range(len(elo))])
-            if n_update_points > 0:
-                denom_2_sum = self.weights * self.nodes[n].map + 1e-16
-            else:
-                denom_2_sum = self.weights * self.nodes[n].map**2 + 1e-16
-            #denom_adj = self.weights[i] * self.nodes[n].map[i]**2
-            denom = np.sum(denom_2_sum)
-            norm = np.array([i@i for i in rem]) +1e-16
-            #self_int = np.array([self.weights[i]*self.nodes[n].map[i]*rem[i]@eL[i] for i in range(len(rem))])
-            #print(len(norm),'norm')
-            #slope = np.sum((eL.T*self.weights*self.nodes[n].map).T@rem.T, axis=1)
-            a = (elo)/(denom*norm)#np.sum(elo-np.diag(eld), axis=1)/(denom*norm)
-            a_keep = ((a<1) & (a>0)) #& (slope < 0)
-            a = np.maximum(np.minimum(a, 1),0)
-            #a_plus = a > 0
-            #print(elo.shape)
-            #prefactor_a = norm*np.sum(self.nodes[n].map**2*self.weights)
-            total_change = - (denom*norm)/2*a**2 + elo.T*a.T
-            #np.sum((elo.T*a).T, axis=1)
-            #np.sum(-prefactor_a.T/2*a[a_keep]**2 + elo[a_keep].T*a[a_keep], axis=0)
-            #print(len(total_change), 'tc')
-            #print(a[a_keep])
-            #print(total_change / len(data))
-            
-            best_sig = np.argmin(a)
-            best_sig2 = np.argmax(total_change)
-            
-            if total_change[best_sig2] > 0:
-                top_sum = a[best_sig2]
-                #print('1', total_change[best_sig], total_change[best_sig2], slope[best_sig2])
-                #print(n, a)
-                #if slope[best_sig2] < 0:
-                # = self.weights * self.nodes[n].map**2 + 1e-16
-                #print(top_sum, np.sum(denom_2_sum))
-                beta = top_sum #/ np.sum(denom_2_sum)
-                beta = np.minimum(np.maximum(beta,0),1)
-                beta /= attenuation
-                print(n, beta, time.time() - start)
-                classifier_new = self.nodes[n].classifier + beta*rem[best_sig2]
-                #eL += np.outer(self.nodes[n].map, beta*rem[best_sig])
-                self.nodes[n].classifier = classifier_new
-                #num_2_sum = np.multiply(rem@np.multiply(self.weights, eL.T), self.nodes[n].map)
+            if len(occs)==0:
+                if alg=='complex':
+                    self.predict(data)
+                elif alg=='simple':
+                    self.simple_predict(data)
+                occs = {}
+                for n in self.nodes:
+                    occs[n] = self.nodes[n].map 
+        else:
+            if alg=='complex':
+                self.predict(data)
+            elif alg=='simple':
+                self.simple_predict(data)
+                
 
-                #a[ a < 0 ] = 0
-                #a /= (len(self.weights))#*np.maximum(1,np.sum(self.nodes[n].map))
-                #rem =  np.sum(np.multiply(a, (data_stack-lc).T), axis=1)
-            
+                    
+        for level in levels:
+            incl_nodes = [n for n in self.nodes if len(n) == level]
+            #eL = self.remainder_at_level(data, level)
+            #for pix in data:S
+            #if '1' in incl_nodes:
+            #    incl_nodes = ['1']
+            for n in incl_nodes:
+                if n_update_points > 0:
+                    om = occs[n]
+                    om = om > 0
+                    update_pix = np.random.choice(om.sum(), np.minimum(n_update_points, np.sum(om)))
+                    #update_pix = rand_sel(om, n_update_points)
+                    #ldata = data[update_pix]
+                    #print(ldata.shape, "ldata")
+                    ldata = data[om][update_pix]
+                    self.simple_predict(ldata)
+                else:
+                    ldata = data
+                eL = self.remainder_at_level(ldata, level)
+                lc = self.nodes[n].classifier
+                rem = ldata-lc # to throw errors if there is a bug
+                #eXdelta = rem@eL.T
+                #if n_update_points > 0:
+                #    elo_sum = np.sum(np.multiply((self.weights).T, eL.T), axis=1)
+                #    self_int = np.array([self.weights[i]*rem[i]@eL[i] for i in range(len(rem))])
+                #    self_int_denom = np.array([self.weights[i] * self.nodes[n].map[i] for i in range(len(rem))])
+                #else:
+                elo_sum = np.sum(np.multiply((self.weights*self.nodes[n].map).T, eL.T), axis=1)
+                self_int = np.array([self.weights[i]*self.nodes[n].map[i]*rem[i]@eL[i] for i in range(len(rem))])
+                self_int_denom = np.array([self.weights[i] * self.nodes[n].map[i]**2 for i in range(len(rem))])
+                elo = elo_sum@rem.T
+                #norm = np.array([i@i for i in rem])
+                #elo = np.multiply((self.weights*self.nodes[n].map).T,eXdelta)#.T@rem.T
+                #elo_sum = elo.sum#eld = np.array([elo[i,i] for i in range(len(elo))])
+                #if n_update_points > 0:
+                #    denom_2_sum = self.weights * self.nodes[n].map + 1e-16
+                #else:
+                denom_2_sum = self.weights * self.nodes[n].map**2 + 1e-16
+                #denom_adj = self.weights[i] * self.nodes[n].map[i]**2
+                denom = np.sum(denom_2_sum)
+                norm = np.array([i@i for i in rem]) +1e-16
+                
+                #print(len(norm),'norm')
+                #slope = np.sum((eL.T*self.weights*self.nodes[n].map).T@rem.T, axis=1)
+                a = (elo - self_int)/((denom - self_int_denom)*norm)#np.sum(elo-np.diag(eld), axis=1)/(denom*norm)
+                a_keep = ((a<1) & (a>0)) #& (slope < 0)
+                a = np.maximum(np.minimum(a, 1),0)
+                #a_plus = a > 0
+                #print(elo.shape)
+                #prefactor_a = norm*np.sum(self.nodes[n].map**2*self.weights)
+                total_change = - (denom*norm)/2*a**2 + elo.T*a.T
+                #np.sum((elo.T*a).T, axis=1)
+                #np.sum(-prefactor_a.T/2*a[a_keep]**2 + elo[a_keep].T*a[a_keep], axis=0)
+                #print(len(total_change), 'tc')
+                #print(a[a_keep])
+                #print(total_change / len(data))
+
+                best_sig = np.argmin(a)
+                best_sig2 = np.argmax(total_change)
+
+                if total_change[best_sig2] > 0:
+                    top_sum = a[best_sig2]
+                    #print('1', total_change[best_sig], total_change[best_sig2], slope[best_sig2])
+                    #print(n, a)
+                    #if slope[best_sig2] < 0:
+                    # = self.weights * self.nodes[n].map**2 + 1e-16
+                    #print(top_sum, np.sum(denom_2_sum))
+                    beta = top_sum #/ np.sum(denom_2_sum)
+                    beta = np.minimum(np.maximum(beta,0),1)
+                    beta /= attenuation
+                    print(n, beta, time.time() - start)
+                    classifier_new = self.nodes[n].classifier + beta*rem[best_sig2]
+                    #eL += np.outer(self.nodes[n].map, beta*rem[best_sig])
+                    self.nodes[n].classifier = classifier_new
+                    #num_2_sum = np.multiply(rem@np.multiply(self.weights, eL.T), self.nodes[n].map)
+
+                    #a[ a < 0 ] = 0
+                    #a /= (len(self.weights))#*np.maximum(1,np.sum(self.nodes[n].map))
+                    #rem =  np.sum(np.multiply(a, (data_stack-lc).T), axis=1)
+
             
             
             
@@ -2173,10 +2224,22 @@ class DEH():
         delta = 1
         obj_orig, o_scores = evaluate()
         while delta > tol:
-            update_pix = np.random.choice(len(data), n_update_points)
-            self.lowest_level_S(data[update_pix],beta=beta, alg=alg)
-            update_pix = np.random.choice(len(data), n_update_points)
-            self.one_step_cyclic(data, lowest=True, n_update_points=n_update_points)
+            #update_pix = np.random.choice(len(data), n_update_points)
+            if alg=='simple':
+                self.simple_predict(data)
+            else:
+                self.predict(data)
+            prob_map = {}
+            for n in self.nodes:
+                if len(n) >= 0:
+                    prob_map[n] = self.nodes[n].map
+                else:
+                    prob_map=()
+            self.lowest_level_S(data,beta=beta, alg=alg, n_update_points=n_update_points,
+                               occs=prob_map)
+            #update_pix = np.random.choice(len(data), n_update_points)
+            self.one_step_cyclic(data, lowest=True, n_update_points=n_update_points,
+                                prob_map=prob_map)
             if record_weights:
                 self.append_node_record()
             new_obj, o_scores = evaluate()
@@ -2247,13 +2310,22 @@ class DEH():
         delta = 1
         obj_orig, o_scores = evaluate()
         while delta > tol:
+            
+            if alg=='simple':
+                self.simple_predict(data)
+            else:
+                self.predict(data)
+            prob_map = {}
+            for n in self.nodes:
+                if len(n) >= 0:
+                    prob_map[n] = self.nodes[n].map
             #update_pix = np.random.choice(len(data), np.minimum(len(data), n_update_points))
             #self.one_step(data[update_pix],beta=beta, up_level=up_level, scaling_factor=scaling_factor, alg=alg)
             self.one_step_S(data,beta=beta, up_level=up_level, scaling_factor=scaling_factor, alg=alg,
-                           n_update_points = n_update_points, attenuation=1)
+                           n_update_points = n_update_points, attenuation=1, occs=prob_map)
             #update_pix = np.random.choice(len(data), n_update_points)
             #self.one_step_cyclic(data[update_pix], scaling_factor=scaling_factor)
-            self.one_step_cyclic(data, scaling_factor=scaling_factor, n_update_points=n_update_points)
+            self.one_step_cyclic(data, scaling_factor=scaling_factor, n_update_points=n_update_points, prob_map=prob_map)
             if record_weights:
                 self.append_node_record()
             new_obj, o_scores = evaluate()
@@ -2366,18 +2438,18 @@ class DEH():
             
     def switch_training(self, image, beta, tol, n_update_points=1000, scaling_factor=4,
                         obj_record=(), sampling_points=(), alg='complex'):
-        self.quick_alt_ll( image, beta=beta, tol=tol,
-                               n_update_points=n_update_points,
-                               obj_record=obj_record, sampling_points=sampling_points, alg=alg)
+        #self.quick_alt_ll( image, beta=beta, tol=tol,
+        #                       n_update_points=n_update_points,
+        #                       obj_record=obj_record, sampling_points=sampling_points, alg=alg)
         old_obj = 1
         new_obj = 0
-        while np.abs(old_obj - new_obj) > tol:
+        while np.abs(old_obj - new_obj)/old_obj > tol:
                 self.quick_alt( image, beta=beta, tol=tol,
                       n_update_points=n_update_points,
                             sampling_points=sampling_points, obj_record=obj_record, scaling_factor=scaling_factor, alg=alg)
-                self.quick_alt_ll( image, beta=beta, tol=tol,
-                               n_update_points=n_update_points,
-                               obj_record=obj_record, sampling_points=sampling_points, alg=alg)
+                #self.quick_alt_ll( image, beta=beta, tol=tol,
+                #               n_update_points=n_update_points,
+                #               obj_record=obj_record, sampling_points=sampling_points, alg=alg)
                 old_obj = new_obj
                 new_obj = obj_record[-1][0]
                 
@@ -2420,7 +2492,7 @@ class DEH():
         #self.populate_fns(data, alg='simple')
         depth = self.get_depth()
         eL = self.remainder_at_level(data, depth)
-        print('err', np.sum(np.multiply((eL**2).T, self.weights), axis=0).mean())
+        #print('err', np.sum(np.multiply((eL**2).T, self.weights), axis=0).mean())
         #for i in range(depth):
         #    #print("updateing", i)
         #    self.update_from_level(i+1, data, scaling_factor=scaling_factor, alg='simple')
@@ -2503,10 +2575,10 @@ class DEH():
         int_level1[int_level1<=0]=10**16
         intercepts = np.minimum(int_level1, int_level0)
         
-        print('veta,',beta, intercepts.min())
+        #print('veta,',beta, intercepts.min())
         if beta > intercepts.min():
             beta = find_opt_beta(intercepts, init_incl, num, denom)
-            print('beta,', beta)
+            #print('beta,', beta)
 
         if var=='W':    
             if beta > 0:
@@ -2536,9 +2608,9 @@ class DEH():
             
         self.simple_predict(data)
         eL = self.remainder_at_level(data, depth)
-        print(node, var, ' include ', np.sum(init_incl))
+        #print(node, var, ' include ', np.sum(init_incl))
         
-        print('err', np.sum(np.multiply((eL**2).T, self.weights), axis=0).mean())
+        #print('err', np.sum(np.multiply((eL**2).T, self.weights), axis=0).mean())
         
         init_incl = np.abs(self.nodes[node+'0'].lmda - 0.5) < 0.5
         if np.sum(init_incl)==0:
@@ -2546,7 +2618,7 @@ class DEH():
             return -1
 
         
-    def one_step_cyclic(self, data, scaling_factor=2, n_update_points=0, lowest=False):
+    def one_step_cyclic(self, data, scaling_factor=2, n_update_points=0, lowest=False, prob_map=()):
         nodes = list(self.nodes.keys())
         depth = self.get_depth()
         if lowest:
@@ -2554,12 +2626,13 @@ class DEH():
         else:
             start=0
         if n_update_points > 0:
-            self.simple_predict(data)
-            prop_map = {}
-            for n in nodes:
-                if len(n) >= 0:
-                    prop_map[n] = self.nodes[n].map
-                    #prop_map[n] = self.nodes[n].map>0
+            if len(prob_map)==0:
+                self.simple_predict(data)
+                prob_map = {}
+                for n in nodes:
+                    if len(n) >= 0:
+                        prob_map[n] = self.nodes[n].map
+                        #prob_map[n] = self.nodes[n].map>0
         for level in range(depth-1, start-1, -1):
             for n in nodes:
                 if len(n)==level:
@@ -2569,26 +2642,27 @@ class DEH():
                                               dtype=np.float32)
                         #plt.plot(self.nodes[n].splitter[0])
                         if n_update_points > 0:
-                            pm = prop_map[n] #> 0
-                            pm_max = np.minimum(prop_map[n+'0'].max(), prop_map[n+'1'].max())
-                            print(pm_max, 'pmmax', n)
-                            if pm_max > 0.1:
-                                update_pix = rand_sel(pm, n_update_points)
-                                #update_pix = np.random.choice(np.sum(pm),
-                                #                              np.minimum(np.sum(pm), n_update_points))
-                                self.node_grad(n, data[update_pix], scaling_factor=scaling_factor, var='W',
-                                              metropolis=True)
-                                self.node_grad(n, data[update_pix], scaling_factor=scaling_factor, var='h',
-                                              metropolis=True)
-                            else:
-                                self.nodes[n].splitter = [self.nodes[n].splitter[0]*0,
-                                                          self.nodes[n].splitter[1]*0]
+                            pm = prob_map[n] > 0
+                            pm_max = np.minimum(prob_map[n+'0'].max(), prob_map[n+'1'].max())
+                            #print(pm_max, 'pmmax', n)
+                            #if pm_max > 0.1:
+                                #update_pix = rand_sel(pm, n_update_points)
+                            update_pix = np.random.choice(np.sum(pm),
+                                                          np.minimum(np.sum(pm), n_update_points))
+                            self.node_grad(n, data[pm][update_pix], scaling_factor=scaling_factor, var='W',
+                                          metropolis=False)
+                            self.node_grad(n, data[pm][update_pix], scaling_factor=scaling_factor, var='h',
+                                          metropolis=False)
+                            #else:
+                            #self.nodes[n].splitter = [self.nodes[n].splitter[0]*0,
+                            #                              self.nodes[n].splitter[1]*0]
                         else:
                             self.node_grad(n, data, scaling_factor=scaling_factor, var='W')
                             self.node_grad(n, data, scaling_factor=scaling_factor, var='h')
                         #plt.plot(self.nodes[n].splitter[0])
                         #plt.show()
-                        
+                       
+                    
     def node_stats(self):
         lengths ={}
         for n in self.nodes:
@@ -2610,8 +2684,9 @@ class DEH():
             total_err = np.sum(self.weights * eL.T**2)
             pointwise_err = total_err / len(data)
             errors[l] = pointwise_err
-        for l in errors:
             print(l, errors[l])
+        #for l in errors:
+            
         return errors
             
     
@@ -2658,7 +2733,7 @@ def find_opt_beta(intercepts, initial_include, num_weights, denom_weights):
         i += 1
         if i==len(args):
             slope=0
-    print("min ints", min_int) 
+    #print("min ints", min_int) 
     return np.minimum(np.maximum(beta-EPS,0), np.maximum(old_beta-old_slope/denom,0))#(old_beta + beta) / 2
 
             
@@ -2752,7 +2827,7 @@ def rand_sel(qprob_map, number_of_pixels):
     '''
     randomly selects number_of_pixels according to qprob_map probability distribution
     '''
-    p_sum = np.sum(qprob_map)
+    p_sum = np.sum(qprob_map.astype(np.float32))
     #prange = np.arange(len(qprob_map))
     pprob = qprob_map[qprob_map>0]
     if len(pprob) == 0:
