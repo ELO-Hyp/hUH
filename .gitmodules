@@ -1,3 +1,6 @@
 [submodule "DR"]
 	path = DR
 	url = git@github.com:ELO-Hyp/DR.git
+[submodule "src/VCA"]
+	path = src/VCA
+	url = https://github.com/Laadr/VCA
