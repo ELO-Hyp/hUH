@@ -4451,7 +4451,10 @@ class DEH():
         norm_sort /= (self.full_weights[sort_lab]*self.nodes[node].map.astype(np.float32)).sum()
         
         norm_cri = norm_sort > split_level
-        scale_val = np.abs((out-0.5))[sort_lab][norm_cri].min()
+        try:
+            scale_val = np.abs((out-0.5))[sort_lab][norm_cri].min()
+        except ValueError:
+            scale_val = 0.5
         if less_than:
             if scale_val > 0.5:
                 return False
