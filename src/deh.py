@@ -1,3 +1,4 @@
+import collections.abc
 import numpy as np
 import matplotlib.pyplot as plt
 import numpy.ma as matplotlib
@@ -17,7 +18,7 @@ import collections
 
 
 def flat(x):
-    if isinstance(x, collections.Iterable):
+    if isinstance(x, collections.abc.Iterable):
         return [a for i in x for a in flat(i)]
     else:
         return [x]
