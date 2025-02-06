@@ -282,8 +282,8 @@ class DEH():
                 y = np.zeros(len(points))
                 y[len(flat(self.nodes[n+'0'].origin_pix)):]=1
                 test1.fit(X,y)
-                self.nodes[n].splitter = test1.coef_[0], test1.intercept_
-        
+                self.nodes[n].splitter = test1.coef_[0], test1.intercept_[0] #BUGFIX test1.intercept_ is 1D array and initialize needs a not array value
+
     def trim(self, level):
         nodes = list(self.nodes.keys())
         for n in nodes:
@@ -2053,7 +2053,8 @@ class DEH():
                 if len(i)==level:
                     if i[:len(original)]==original:
                         count += 1
-            print(count)
+            if self.verbose:
+                print(count)
 
             fig, ax = plt.subplots(count, figsize=(8,2*count))
             for i, a in enumerate(ax):
@@ -2567,9 +2568,11 @@ class DEH():
             
     def one_step_S(self, data, beta=0.1, max_level=-1, up_level=0, scaling_factor=2, alg='complex', max_step_r = 0.01,
                   n_update_points=0, attenuation=1, occs=(), split_var=(), levels=()):
-        
+        if self.verbose:
+            print("one step S")
         if len(levels)==0:
             levels = [i for i in range(1,self.get_depth()+1)]
+
         self.update_from_level_S_V(data, beta=beta, alg=alg, n_update_points=n_update_points, attenuation=attenuation,
                                   levels=levels, occs=occs, split_var=split_var)
 
@@ -2844,7 +2847,8 @@ class DEH():
                             pix = tc_sorted[i]
                                 
                             
-                            print(n, total_change[pix], i)#, [int(i) for i in total_change[tc_sorted][-self.PAA_backcount:]], i)
+                            if self.verbose:
+                                print(n, total_change[pix], i)#, [int(i) for i in total_change[tc_sorted][-self.PAA_backcount:]], i)
 
                             best_sig2 = pix
                             top_sum = 1#a[best_sig2]
@@ -3204,8 +3208,9 @@ class DEH():
             S_delta = np.sum(np.abs(S_1 - S_0)) / np.sum(S_1)
             obj_orig = new_obj
             obj_record.append([o_scores[-1],3, self.get_depth(), S_delta, o_scores[0], o_scores[1]])
-            print(new_obj, delta, S_delta, o_scores)
-            print((delta > tol),(i<max_iter))
+            if self.verbose:
+                print(new_obj, delta, S_delta, o_scores)
+                print((delta > tol),(i<max_iter))
             # 
             
            
@@ -4117,7 +4122,8 @@ class DEH():
         intercepts = np.minimum(int_level1, int_level0)
         intercepts = np.append(intercepts, [10**17])
         
-        print('veta,', var, beta, intercepts.min(), np.sum(init_incl),np.sum(num[init_incl1]), np.sum(denom[init_incl1]))
+        if self.verbose:
+            print('veta,', var, beta, intercepts.min(), np.sum(init_incl),np.sum(num[init_incl1]), np.sum(denom[init_incl1]))
         
         
         if beta > intercepts.min():
@@ -4132,7 +4138,8 @@ class DEH():
             
             #if beta > beta_0:
             #    beta = beta_0
-            print('beta,', beta)
+            if self.verbose:
+                print('beta,', beta)
             if beta < intercepts.min():
                 beta = intercepts.min() - 1e-16
         if beta > 10**10:
@@ -4170,7 +4177,8 @@ class DEH():
         #print(node, var, ' include ', np.sum(init_incl))
         n_err = np.sum(np.multiply((eL**2).T, self.weights), axis=0).astype(np.float64).mean() - r * np.sum(S**2, axis=0).astype(np.float64).mean()
         n_incl = np.abs(self.nodes[node+'0'].lmda - 0.5) < 0.5
-        print('err', var, o_err, n_err, var)
+        if self.verbose:
+            print('err', var, o_err, n_err, var)
         if False:#n_err > o_err:
             betas = [0]
             scores = [o_err]
@@ -4235,7 +4243,8 @@ class DEH():
         map1 = np.sum(self.nodes[node+'1'].map)==0
         init_incl = np.abs(self.nodes[node+'0'].lmda - 0.5) < 0.5
         if map0|map1:
-            print("back to old splitter", node, var)
+            if self.verbose:
+                print("back to old splitter", node, var)
             self.nodes[node].splitter = old_splitter
             
         #plt.imshow(self.nodes[node+'0'].lmda.reshape(self.plot_size))
@@ -4856,6 +4865,8 @@ class DEH():
                      scaling_factor=2, epsilon = 0.1):
         i = 0
         for i in range(n_runs):
+            if self.verbose:
+                print("equiliberate run: ", i, "of ", n_runs)
             self.rescale_all_nodes(epsilon, image, less_than=False)
             self.switch_training(image, beta=0, tol=1e-12, n_update_points=n_pts, 
                                      scaling_factor=scaling_factor, sampling_points=sampling_points,
@@ -4915,6 +4926,8 @@ class DEH():
         self.sparsity_sweep(data, sampling_points, obj_record, n_points, step_delta, reg_max)
         deh_mpp = self.mpp(data)
         while deh_mpp > mpp_tol:
+            if self.verbose:
+                print("deh_mpp:", deh_mpp, " > mmp_tol: ", mpp_tol)
             scaling_factor = np.maximum(0, scaling_factor - mpp_tol)
             scale = self.max_node_scale(data)
             scale *= scaling_factor
@@ -4946,9 +4959,10 @@ class DEH():
                                          A_protection=False, only_ends=False)
             #DEH.only_end=False
             deh_mpp = self.mpp(data)
-            print(self.reg, deh_mpp)
+            if self.verbose:
+                print(self.reg, deh_mpp)
             #reg_mix.append([DEH.reg, deh_mpp])
-            self.display_level(self.get_depth())
+            #self.display_level(self.get_depth())
         #DEH.sparsifying=False
         self.reg = 0
         
@@ -5114,60 +5128,61 @@ class DEH():
         #        n_pts=n_pts[0], sampling_points=sampling_points)
 
         #counter-bias with scaling factor of 2 and -/4 bias and epsilon = 0.25
-        print("sf2-4e025")
+        print("\n----sf2-4e025----\n")
         self.reg = -self.en_min_max()[0]/4
         self.equiliberate(data, obj_record=obj_record, n_runs=n_runs, scaling_factor=2, epsilon =0.25,
                 n_pts=n_pts[0], sampling_points=sampling_points)
 
         self.simple_predict(data)
-        self.display_level(self.get_depth())
+        # self.display_level(self.get_depth())
         #counter-bias with scaling factor of 4 and -/4 bias and epsilon = 0.5
-        print("sf4-4e05")
+        print("\n----sf4-4e05----\n")
         self.reg = -self.en_min_max()[0]/4
         self.equiliberate(data, obj_record=obj_record, n_runs=n_runs, scaling_factor=4, epsilon =0.5,
                 n_pts=n_pts[0], sampling_points=sampling_points)
         self.simple_predict(data)
-        self.display_level(self.get_depth())
+        # self.display_level(self.get_depth())
 
 
         #counter-bias with scaling factor of 4 and -/4 bias and epsilon = 0.25
-        print("sf4-4e025")
+        print("\n----sf4-4e025----\n")
         self.reg = -self.en_min_max()[0]/4
         self.equiliberate(data, obj_record=obj_record, n_runs=n_runs, scaling_factor=4, epsilon =0.25,
                 n_pts=n_pts[0], sampling_points=sampling_points)
         self.simple_predict(data)
-        self.display_level(self.get_depth())
+        # self.display_level(self.get_depth())
 
 
         #counter-bias with scaling factor of 4 and -/4 bias and epsilon = 0
-        print("sf4-4e0")
+        print("\n----sf4-4e0----\n")
         self.reg = -self.en_min_max()[0]/4
         self.equiliberate(data, obj_record=obj_record, n_runs=n_runs, scaling_factor=4, epsilon =0.0,
                 n_pts=n_pts[0], sampling_points=sampling_points)
         self.simple_predict(data)
-        self.display_level(self.get_depth())
+        # self.display_level(self.get_depth())
 
 
         #counter-bias with only end and -/4 bias
-        print("oe-4")
+        print("\n----oe-4----\n")
         self.only_ends = True
         self.reg = -self.en_min_max()[0]/4
         self.equiliberate(data, obj_record=obj_record, n_runs=n_runs, scaling_factor=1, epsilon =0.0,
                 n_pts=n_pts[0], sampling_points=sampling_points)
         self.only_ends = False
         self.simple_predict(data)
-        self.display_level(self.get_depth())
+        # self.display_level(self.get_depth())
 
 
         #only ends and no counter-bias
-        print("oe")
+        print("\n----oe----\n")
         self.reg = 0
         self.only_ends = True
         self.equiliberate(data, obj_record=obj_record, n_runs=n_runs, scaling_factor=1, epsilon =0.0,
                 n_pts=n_pts[0], sampling_points=sampling_points)
         self.simple_predict(data)
-        self.display_level(self.get_depth())
+        # self.display_level(self.get_depth())
 
+        print("sparsify")
         self.sparsify(data, sampling_points=sampling_points, obj_record=obj_record,
                  n_points=n_pts[0], reg_max=reg_max, mpp_tol=mpp_tol)
         
@@ -5205,11 +5220,12 @@ class DEH():
         DEH2.equiliberate(data, obj_record=obj_record, n_runs=n_runs, scaling_factor=1, epsilon =mpp_tol,
                 n_pts=n_pts[-1], sampling_points=sampling_points)
         DEH2.simple_predict(data)
-        DEH2.display_level(self.get_depth())
+        # DEH2.display_level(self.get_depth())
 
         #save ppa version
         DEH2.training = 'PPA'
         ppa_name = name+'_' + 'ppa' + '_FINAL' +'.h5' 
+        print("\n----Save ppa----\n")
         DEH2.save(name+'_' + 'ppa' + '_FINAL' +'.h5')
         del DEH2
 
@@ -5222,11 +5238,12 @@ class DEH():
         self.equiliberate(data, obj_record=obj_record, n_runs=n_runs, scaling_factor=1, epsilon =mpp_tol,
                 n_pts=n_pts[-1], sampling_points=sampling_points)
         self.simple_predict(data)
-        self.display_level(self.get_depth())
+        # self.display_level(self.get_depth())
 
         #save aa version
         self.training = 'AA'
         aa_name =  name+'_' + 'aa' + '_FINAL' +'.h5'
+        print("\n----Save aa----\n")
         self.save(name+'_' + 'aa' + '_FINAL' +'.h5')
 
         return ppa_name, aa_name
