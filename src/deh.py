@@ -2047,30 +2047,29 @@ class DEH():
         return S
 
     def display_level(self, level, original=''):
+        count=0
+        for i in self.nodes:
+            if len(i)==level:
+                if i[:len(original)]==original:
+                    count += 1
         if self.verbose:
-            count=0
-            for i in self.nodes:
-                if len(i)==level:
-                    if i[:len(original)]==original:
-                        count += 1
-            if self.verbose:
-                print(count)
+            print(count)
 
-            fig, ax = plt.subplots(count, figsize=(8,2*count))
-            for i, a in enumerate(ax):
-                a.set_xticks([])
-                a.set_yticks([])
+        fig, ax = plt.subplots(count, figsize=(8,2*count))
+        for i, a in enumerate(ax):
+            a.set_xticks([])
+            a.set_yticks([])
 
-            counter = 0
-            for i in self.nodes:
-                if len(i)==level:
-                    if i[:len(original)]==original:
-                        ax[counter].imshow(np.rot90(self.nodes[i].map.reshape(self.plot_size)),
-                                           aspect=self.plot_aspect, vmin=0, vmax=1, interpolation='nearest')
-                        ax[counter].set_ylabel(self.nodes[i].map.astype(np.float32).sum())
-                        ax[counter].set_title(i + " {:.2f}".format(self.nodes[i].map.max()))
-                        counter += 1
-            plt.show()
+        counter = 0
+        for i in self.nodes:
+            if len(i)==level:
+                if i[:len(original)]==original:
+                    ax[counter].imshow(np.rot90(self.nodes[i].map.reshape(self.plot_size)),
+                                        aspect=self.plot_aspect, vmin=0, vmax=1, interpolation='nearest')
+                    ax[counter].set_ylabel(self.nodes[i].map.astype(np.float32).sum())
+                    ax[counter].set_title(i + " {:.2f}".format(self.nodes[i].map.max()))
+                    counter += 1
+        plt.show()
 
     
 
@@ -2212,7 +2211,8 @@ class DEH():
         self.h5file.close()
                 
     def display_spectra(self, spectra_list=(), names = (), wl=(), normalizer = 1, **kwargs):
-        if self.verbose:
+        # if self.verbose: 
+        if True: #still want to see the spectra when calling the function
             if len(spectra_list)==0:
                 spectra_list = [i for i in self.nodes if len(i)==self.get_depth()]
             if len(wl)==0:
@@ -2670,6 +2670,11 @@ class DEH():
         # only set up to work on the lowest level
         # Archetypal -analysis update
         # dependence on beta removed via line search
+        if self.verbose:
+            print("update_from_level_S_V(self, data=", data.shape, 
+                ", beta =", beta, ", alg='", alg, "', a_len_max=", a_len_max,
+                ", n_update_points=", n_update_points, ", attenuation =", attenuation,
+                ", levels=", levels, ", occs=", occs.keys(), ", split_var=", split_var, ")")
         start = time.time()
         if levels[0]==-1:
             levels = (self.get_depth(),)
@@ -2703,14 +2708,16 @@ class DEH():
         self.PAA_i += 1
         indices = np.arange(0,len(data))
         for level in levels:
-            #print("into _V level ", level)
+            if self.verbose:
+                print("into _V level ", level)
             incl_nodes = [n for n in self.nodes if len(n) == level]
             #eL = self.remainder_at_level(data, level)
             #for pix in data:S
             #if '1' in incl_nodes:
             #    incl_nodes = ['1']
             for n in incl_nodes:
-                #print("node", n)
+                if self.verbose:
+                    print("node", n)
                 if n_update_points > 0:
                     om = occs[n]
                     om = om > 0
@@ -2734,6 +2741,9 @@ class DEH():
                 #ldata = np.concatenate((ldata, self.nodes[n[:-1]].classifier.reshape((1,-1))))
                 eL = self.remainder_at_level(oldata, level)
                 #eL = np.concatenate(eL
+                print("self.weights.shape", self.weights.shape, "self.nodes[n].map.astype(np.float64).shape", self.nodes[n].map.astype(np.float64).shape)
+                print("eL.T.shape", eL.T.shape)
+
                 
                 elo_sum = np.sum(np.multiply((self.weights*self.nodes[n].map.astype(np.float64)).T, eL.T), axis=1)
                 #denom_2_sum = self.weights * self.nodes[n].map**2
@@ -3097,6 +3107,8 @@ class DEH():
                   obj_record=(), up_level=0, scaling_factor=2, alg='complex',
                   record_weights=False, split_var=(), both=True, max_iter=1000, only_ends=False,
                   levels=(), A_protection=False):
+        if self.verbose:
+            print("quick_alt()")
         if len(obj_record)==0:
             obj_record = []
         depth = self.get_depth()
@@ -4927,6 +4939,7 @@ class DEH():
         deh_mpp = self.mpp(data)
         while deh_mpp > mpp_tol:
             if self.verbose:
+                print("sparsifying loop")
                 print("deh_mpp:", deh_mpp, " > mmp_tol: ", mpp_tol)
             scaling_factor = np.maximum(0, scaling_factor - mpp_tol)
             scale = self.max_node_scale(data)
