@@ -168,3 +168,5 @@ save/
 #ignore images folder
 images/
 
+#ignore weights folder
+weights/
