@@ -38,8 +38,6 @@ class Node():
         self.mu = 0
         self.reg = 0 
 
-
-        
 def svm_to_endmembers(coef, intercept, data):
     abs_coef = np.sqrt(np.sum(coef**2))
     coef_norm = coef/abs_coef
@@ -57,7 +55,6 @@ def svm_to_endmembers(coef, intercept, data):
     #if np.isnan(endmember0).any():
     #    print(abs_coef, coef_norm, endmember_mean, proj_coefficients, shifted_data)
     return endmember0, endmember1
-
 
 class DEH():
     def __init__(self, no_negative_residuals = True, subfit_params={}):
@@ -133,7 +130,6 @@ class DEH():
         for node in self.reg_list:
             self.nodes[node].reg = reg_level
             
-        
     def increment_mu(self):
         if self.delta_mu > 0:
             mu_max = self.mu
@@ -171,8 +167,6 @@ class DEH():
                     pass
             self.mu = mu
             
-
-        
     def use_norm(self, truth):
         if truth:
             for node in self.nodes:
@@ -183,8 +177,6 @@ class DEH():
             for node in self.nodes:
                 self.nodes[node].classifier = self.nodes[node].classifier_r
 
-            
-            
     def random_init(self, data, n_starting_pts, seed=0):
         self.parameter_initialization(data)
         np.random.seed = seed
@@ -195,7 +187,6 @@ class DEH():
         
     def subsamp_weights(self):
         self.weights = self.full_weights[self.subsamp]
-        
         
     def construct_init_from_pix(self, data, starting_pix):    
         groups = [[[i],0] for i in starting_pix]
@@ -214,7 +205,6 @@ class DEH():
             self.add_group_layer(data, self.full_weights)
             
         self.initialize_splitters(data)
-        
         
     def append_node_record(self):
         deh_nodes = list(self.nodes.keys())
@@ -242,8 +232,6 @@ class DEH():
                     self.node_record[n]['h'] = []
                 self.node_record[n]['s'] = [copy.deepcopy(self.nodes[n].classifier)]
                 
-        
-    
     def add_group_layer(self, dat, weights):
         nodes = list(self.nodes)
         d = self.get_depth()
@@ -262,7 +250,6 @@ class DEH():
 
                 self.nodes[n+'0'].origin_pix = pix0
         
-        
     def nodes_2_include(self):
         d = self.get_depth()
         to_include = []
@@ -272,7 +259,6 @@ class DEH():
                     to_include.append(n)
         return to_include
 
-        
     def initialize_splitters(self, dat):
         test1 = svm.LinearSVC(max_iter=1000000, dual=True, C=10**10)
         for n in self.nodes:
@@ -302,7 +288,6 @@ class DEH():
         else:
             return False
         
-                             
     def check_single_splitting(self):
         if len(self.get_end_nodes())==self.max_nodes:
             return False
@@ -334,7 +319,6 @@ class DEH():
                               classifier = image[best_pix],
                               status=False)
 
-            
     def set_weight_function(self):
         def wf(image):
             if self.weight_power > 0:
@@ -343,7 +327,6 @@ class DEH():
                 return 1/np.sum(np.abs(image)**self.weight_power, axis=1)
         self.wf = wf
        
-        
     def get_full_weights(self):
         if len(self.subsamp) > 0:
             self.weights = self.full_weights[self.subsamp]
@@ -365,7 +348,6 @@ class DEH():
         
         self.get_full_weights()
         
-    
     def print_nmax(self, level):
         return 0
         n_nodes = 0
@@ -383,8 +365,6 @@ class DEH():
         if self.verbose:
             print(n_nodes, 'nmax ',S.max(), maxes)
 
-        
-        
     def update_lower_level_spatial(self, level, data):
         L_nodes = [i for i in self.nodes if len(i)==level]
         endnodes = self.get_end_nodes()
@@ -425,7 +405,6 @@ class DEH():
             if vary_spectra:
                 self.update_spectra(data, level, utype=self.root)
 
-    
     def train_clap_cycle(self, image):
         orig_S = self.end_node_map()
         self.full_fit(image)
@@ -446,7 +425,6 @@ class DEH():
             print("delta: ", (delta.sum()/orig_S.shape[1]))
         self.trim_empty_nodes()
         return delta.sum()/orig_S.shape[1]
-    
     
     def one_loop_clap(self, image):
         self.training = 'one_loop'
@@ -470,8 +448,6 @@ class DEH():
         self.predict(pixels)
         e = self.remainder_at_level(image, level)
         
-        
-            
     def train(self, image, loop='closed', cycle='clap'):
         self.start = time.time()
         if loop=='open':
@@ -507,7 +483,6 @@ class DEH():
             #print(level)
             self.spectral_from_spatial(level, data)
             
-    
     def propagate_spectral_downward(self, data, vary_spectra=True):
         depth = self.get_depth()
         for level in range(depth):
@@ -517,13 +492,11 @@ class DEH():
             if vary_spectra:
                 self.update_spectra(data, level, utype=self.root)
                      
-            
     def update_all_spectra(self, data, utype='spatial'):
         depth = self.get_depth()
         for level in range(depth+1):
             self.update_spectra(data, level, utype)
           
-        
     def ff_norm_S(self):
         end_nodes = self.get_end_nodes()
         S = np.zeros((len(end_nodes), len(self.nodes[''].map)), dtype=np.float32)
@@ -536,8 +509,6 @@ class DEH():
         for i, x in enumerate(self.end_nodes):
             self.nodes[x].map = S[i]
                      
-        
-        
     def feed_forward_train(self, image):
         self.training = 'open_loop'
         self.parameter_initialization(image)
@@ -599,7 +570,6 @@ class DEH():
             self.propagate_one_child_nodes()
             self.display_level(self.get_depth())
         
-            
     def train_slap(self, image):
         self.training = 'closed loop'
         self.parameter_initialization(image)
@@ -617,6 +587,7 @@ class DEH():
             #print('full fit')
             #self.display_level(self.get_depth())
         #self.train_1_cycle(image)
+    
     def train_cycle(self, image):
         delta = 1
         while delta > self.tolb:
@@ -712,7 +683,6 @@ class DEH():
         #            m = n[:-1]+'0'
         #            self.nodes[n].lmda = 1-np.round(self.nodes[m].lmda)
 
-        
     def base_predict(self, image):
         classifiers = self.get_end_classifiers()
         try:
@@ -748,7 +718,6 @@ class DEH():
             print("delta: ", (delta.sum()/orig_S.shape[1]))
         self.trim_empty_nodes()
         return delta.sum()/orig_S.shape[1]
-        
         
     def train_single_open_node(self, image, node):
         rimage = self.get_reduced_dataset(image, node)
@@ -965,7 +934,6 @@ class DEH():
                     except KeyError:
                         pass
                     
-                
     def update_intermediate_node_maps(self):
         depth = self.get_depth()
         unupdated = list(self.nodes.keys())
@@ -979,7 +947,6 @@ class DEH():
                     except KeyError:
                         self.nodes[i].map = self.nodes[i+'0'].map
                         
-                        
     def get_twin(self, node):
         candidate = node[:-1] + str(int(not bool(node[-1])))
         if candidate in self.nodes:
@@ -987,7 +954,6 @@ class DEH():
         else:
             return ()
     
-        
     def get_depth(self):
         my = list(self.nodes.keys())
         my.sort(key=len)
@@ -1122,7 +1088,6 @@ class DEH():
         except KeyError:
             print('keyerror')
             pass
-        
         
     def train_node_from_spectral(self, nodeID, data):
         '''
@@ -1290,7 +1255,6 @@ class DEH():
             l = i + str(j)
             self.nodes[l] = Node(spatial_map=S[j], classifier=output[0][:,j])
         
-    
     def train_open_nodes(self, data):
         nodes = self.get_open_nodes()
         for i in nodes:
@@ -1378,10 +1342,8 @@ class DEH():
                     if i[:len(node)]==node:
                         self.nodes.pop(i)
         
-        print(self.nodes.keys())
+        #print(self.nodes.keys())
         
-            
-    
     def initialize_nodes(self, data):     
         args = np.argsort((data**2).sum(axis=-1))
         L = len(args)
@@ -1409,7 +1371,6 @@ class DEH():
             self.nodes[str(i)] = Node(spatial_map=S[i], classifier=output[0][:,i])
         self.nodes[''].status=False
           
-            
     def nodes_to_split(self):
         end_nodes = self.get_end_nodes()
         splitting_nodes = []
@@ -1419,7 +1380,6 @@ class DEH():
                     splitting_nodes.append(node)
         return splitting_nodes
     
-    
     def add_simple_initial_node(self, split_var):
         self.nodes[''].splitter = [np.zeros(split_var.shape[1]), 0]
         self.nodes['0'] = Node(spatial_map=0.5*self.nodes[''].map,
@@ -1427,8 +1387,6 @@ class DEH():
         self.nodes['1'] = Node(spatial_map=0.5*self.nodes[''].map,
                                          classifier=copy.deepcopy(self.nodes[''].classifier))  
         
-    
-    
     def add_single_node(self, data, split_var=(), n_update_points=0):
         if len(split_var) == 0:
             split_var = data
@@ -1740,11 +1698,9 @@ class DEH():
             #self.nodes[to_grow+'0'].classifier0 = opts[to_grow]['c0']
             #self.nodes[to_grow+'1'].classifier1 = opts[to_grow]['c1']
         
-        
     def clean_maps(self):
         for n in self.nodes:
             self.nodes[n].map = np.array([], dtype=np.float16)
-        
         
     def grow_node(self, to_grow):
         d = self.get_depth()
@@ -1785,7 +1741,6 @@ class DEH():
         #print(data[:10,0])
         #self.display_level(1)
     
-    
     def rsi(self):
         rsplitter = DEH(no_negative_residuals=True)
         rsplitter.splitting_size = self.splitting_size
@@ -1805,7 +1760,6 @@ class DEH():
         rsplitter.n_update_pts = self.n_update_pts
         return rsplitter
         
-    
     def remainder_splitter(self, remainder, split_var, tol=(1e-2, 1e-3), A_tol=0,
                           initialized=False, nmap=(), aa=False, uncon=True):
         rsplitter = self.rsi()
@@ -1857,22 +1811,6 @@ class DEH():
     
         return rsplitter
     
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
     def set_splitter_midpoint(self, node, data):
         print("split start", self.nodes[node].splitter[1])
         splitter = self.nodes[node].splitter
@@ -1888,7 +1826,6 @@ class DEH():
             self.nodes[node].splitter[1]-0.5*split_val[split_arg[midpoint]]                         
                                     ]
         print("split end", self.nodes[node].splitter[1])
-    
     
     def get_ldata(self, data):
         if self._use_norm:
@@ -1923,7 +1860,6 @@ class DEH():
         self.use_norm(self._use_norm)        
         self.simple_predict(data)
     
-        
     def add_another_node_layer(self, data):
         to_split = self.nodes_to_split()
         level = self.get_depth()
@@ -2006,7 +1942,6 @@ class DEH():
         else:
             return 0*weight_spectra
 
-
     def setS_to_threshold(self, S_to_set, sseti, S_to_read):
         n_max = self.min_size
         
@@ -2071,8 +2006,6 @@ class DEH():
                     counter += 1
         plt.show()
 
-    
-
     def partition_node(self, node, data):
         min_size = self.min_size#int(np.ceil(np.max([self.min_size / 2**(len(node)), 1])))
         print("partitioning ", node)
@@ -2130,7 +2063,6 @@ class DEH():
             return test1.coef_*(1-self.threshold), test1.intercept_*(1-self.threshold), map1 | map0
         else:
             print('node {} as no children'.format(node))
-            
             
     def save(self, filename, title='Unmixing Hierarchy', save_labels=()):
         d = self.get_depth()
@@ -2290,7 +2222,6 @@ class DEH():
             else:
                 self.nodes[n].lmda = self.nodes[n].map
                 
-                
     def one_step(self, data, beta=0.1, up_level=0, scaling_factor=2, alg='complex', max_update_r=0.01):
         self.populate_fns( data, alg=alg)
         for n in self.nodes:
@@ -2352,7 +2283,6 @@ class DEH():
             else:
                 print("invalid target")
                 
-                
     def fn_initialize(self, level):
         nodes = [j for j in self.nodes if len(j)==(level)]
         nal = [j for j in self.nodes if len(j)==(level+1)]
@@ -2371,7 +2301,6 @@ class DEH():
                 self.nodes[n].fns[m] = fn
             elif n+'0' in self.nodes:
                 self.nodes[n].fns = {m:0*self.nodes[''].map for m in nal}
-                
                 
     def fn_level(self, level, balanced=False, alg='complex'):
         nal = [j for j in self.nodes if len(j)==(level+1)]
@@ -2506,7 +2435,6 @@ class DEH():
             except AttributeError:
                 pass
             
-            
     def update_ll(self, data, scaling_factor = 2, alg='complex'):
         level = self.get_depth()
         scale = scaling_factor**level/np.sum(scaling_factor**np.arange(self.get_depth()+1))
@@ -2564,7 +2492,6 @@ class DEH():
                                                   dtype=np.float32) 
             except AttributeError:
                 pass
-            
             
     def one_step_S(self, data, beta=0.1, max_level=-1, up_level=0, scaling_factor=2, alg='complex', max_step_r = 0.01,
                   n_update_points=0, attenuation=1, occs=(), split_var=(), levels=()):
@@ -2652,7 +2579,6 @@ class DEH():
             except AttributeError:
                 pass
             
-            
     def update_from_level_S_II(self, level, data, scaling_factor = 2):        
         # then update the same-level nodes
         eL = self.remainder_at_level(data, level)
@@ -2663,7 +2589,6 @@ class DEH():
                                np.multiply(eL.T,
                                            -self.nodes[n].map))
             self.nodes[n].S_update -= scale*np.sum(pref, axis=1)/np.maximum(np.sum(self.nodes[n].map), 100)
-            
             
     def update_from_level_S_V(self, data, beta = 0.1, alg='complex', a_len_max=0.01, n_update_points=0,
                              attenuation = 1, levels=(-1,), occs=(), split_var=()):
@@ -2741,8 +2666,8 @@ class DEH():
                 #ldata = np.concatenate((ldata, self.nodes[n[:-1]].classifier.reshape((1,-1))))
                 eL = self.remainder_at_level(oldata, level)
                 #eL = np.concatenate(eL
-                print("self.weights.shape", self.weights.shape, "self.nodes[n].map.astype(np.float64).shape", self.nodes[n].map.astype(np.float64).shape)
-                print("eL.T.shape", eL.T.shape)
+                # print("self.weights.shape", self.weights.shape, "self.nodes[n].map.astype(np.float64).shape", self.nodes[n].map.astype(np.float64).shape)
+                # print("eL.T.shape", eL.T.shape)
 
                 
                 elo_sum = np.sum(np.multiply((self.weights*self.nodes[n].map.astype(np.float64)).T, eL.T), axis=1)
@@ -2826,7 +2751,7 @@ class DEH():
                             ##up_energy = -change_up
                             log_num = (self.nodes[n[:-1]].map).sum()
                             aeng = np.average(energies, weights=self.nodes[n].map**2)
-                            lbeta = np.abs(np.log(log_num/(1-self.A_max+1e-64))/(aeng - energies.min()))
+                            #lbeta = np.abs(np.log(log_num/(1-self.A_max+1e-64))/(aeng - energies.min()))
                             #print("beta is", lbeta, self.A_max)
                             #energies = energies.tolist()+[0]
                             #energies = np.array(energies)
@@ -2933,7 +2858,6 @@ class DEH():
         else:
             self.nodes[node].beta_probability.append(beta_0)
         
-        
     def grow_network_open(self, image, beta, tol, n_update_pts=1000, obj_record=(),
                           sampling_points=(), scaling_factor=2):
         self.parameter_initialization(image)
@@ -2956,7 +2880,6 @@ class DEH():
                          scaling_factor=scaling_factor)
             self.predict(image)
             self.display_level(self.get_depth())
-            
             
     def lowest_alternating(self, data, beta=0.1, tol=0.01, n_update_points=1000, sampling_points=(),
                       obj_record=()):
@@ -3083,7 +3006,6 @@ class DEH():
             obj_record.append([o_scores[-1],1.5, self.get_depth(), o_scores[0], o_scores[1]])
             print(new_obj,o_scores)
           
-        
     def one_step_cyclic_ll(self, data, n_update_points=0):
         nodes = list(self.nodes.keys())
         depth = self.get_depth()
@@ -3102,7 +3024,6 @@ class DEH():
                         self.node_grad(n, data, var='W')
                         self.node_grad(n, data, var='h')
             
-           
     def quick_alt(self, data, beta=0.1, tol=0.01, n_update_points=200, sampling_points=(),
                   obj_record=(), up_level=0, scaling_factor=2, alg='complex',
                   record_weights=False, split_var=(), both=True, max_iter=1000, only_ends=False,
@@ -3267,8 +3188,6 @@ class DEH():
             #                    j+=1
             #                #old_splitters[n[:-1]]
             
-            
-            
     def load_from_node_record(self, idx):
         for node in self.node_record:
             try:
@@ -3280,7 +3199,6 @@ class DEH():
                 self.nodes[node].classifier = self.node_record[node]['s'][-idx ]
             except:
                 pass
-            
             
     def grow_network_closed(self, image, beta, betab, tol, tolb, n_update_pts=1000, scaling_factor=4,
                     obj_record=(), sampling_points=(), alg='complex', record_weights=False):
@@ -3367,7 +3285,6 @@ class DEH():
                 self.simple_predict(image)
             self.display_level(self.get_depth())
 
-            
     def stablize_network(self, data, tol, n_update_points, alg='simple'):
         self.simple_predict(data)
         err = self.remainder_at_level(data, self.get_depth())
@@ -3382,8 +3299,6 @@ class DEH():
             p_err = np.mean(np.sum(err**2, axis=-1))
             var = np.abs(ope-p_err)/p_err
 
-            
-            
     def grow_network_single_nodes(self, image, tol=(0.1), n_update_pts=(1000), scaling_factor=2,
                     obj_record=(), sampling_points=(), alg='simple', record_weights=False,
                                  use_norm=True, clean=False, A_tol = 0.0, split_var=(), saturation = ()):
@@ -3832,7 +3747,6 @@ class DEH():
         self.end=time.time()
         self.training += ";" + str(int(self.end-self.start))
 
-            
     def switch_training(self, image, beta, tol, sw_tol=1e-1, n_update_points=1000, scaling_factor=4,
                         obj_record=(), sampling_points=(), alg='complex', A_tol=0, 
                         split_var=(), both=True, only_ends=False, A_protection=False,
@@ -3892,7 +3806,6 @@ class DEH():
             print("not a valid lambda product")
             return -1
         
-        
     def aggregate_node_at_level(self, node, level, data, vtype='s'):
         top_level = len(node)
         
@@ -3930,7 +3843,6 @@ class DEH():
         #print("outmax", out.max())
 
         return out
-    
     
     def node_grad(self, node, data, scaling_factor=2, var='W', metropolis=False,
                  split_var=(), only_ends = False):
@@ -4040,8 +3952,10 @@ class DEH():
             xw = sdata@self.nodes[node].W_update/2
             #print(xw)
             if xw.any()==0:
-                plt.plot(self.nodes[node].W_update)
-                plt.show()
+                # TODO: this was enabled and plotted a lot of useless information
+                # plt.plot(self.nodes[node].W_update)
+                # plt.show()
+                pass
         elif var=='h':
             xw = 0.5
             
@@ -4135,7 +4049,9 @@ class DEH():
         intercepts = np.append(intercepts, [10**17])
         
         if self.verbose:
-            print('veta,', var, beta, intercepts.min(), np.sum(init_incl),np.sum(num[init_incl1]), np.sum(denom[init_incl1]))
+            # TODO: this was enabled and printed a lot of useless information
+            # print('veta,', var, beta, intercepts.min(), np.sum(init_incl),np.sum(num[init_incl1]), np.sum(denom[init_incl1]))
+            pass
         
         
         if beta > intercepts.min():
@@ -4151,7 +4067,9 @@ class DEH():
             #if beta > beta_0:
             #    beta = beta_0
             if self.verbose:
-                print('beta,', beta)
+                # TODO: this was enabled and printed a lot of useless information
+                # print('beta,', beta) 
+                pass
             if beta < intercepts.min():
                 beta = intercepts.min() - 1e-16
         if beta > 10**10:
@@ -4190,7 +4108,9 @@ class DEH():
         n_err = np.sum(np.multiply((eL**2).T, self.weights), axis=0).astype(np.float64).mean() - r * np.sum(S**2, axis=0).astype(np.float64).mean()
         n_incl = np.abs(self.nodes[node+'0'].lmda - 0.5) < 0.5
         if self.verbose:
-            print('err', var, o_err, n_err, var)
+            # TODO: this was enabled and printed a lot of useless information
+            # print('err', var, o_err, n_err, var)
+            pass
         if False:#n_err > o_err:
             betas = [0]
             scores = [o_err]
@@ -4281,11 +4201,7 @@ class DEH():
             except AttributeError:
                 pass
             
-    
-    #def lowest_level_spatial_updates(self, data, n_update_points=0, prob_map=(), split_var=(),
-    #                                both=True):
-        
-
+    #def lowest_level_spatial_updates(self, data, n_update_points=0, prob_map=(), split_var=(), both=True):
         
     def one_step_cyclic(self, data, scaling_factor=2, n_update_points=0, lowest=False, prob_map=(),
                        split_var=(), both=True, only_ends=False, levels=()):
@@ -4354,7 +4270,6 @@ class DEH():
                         #plt.plot(self.nodes[n].splitter[0])
                         #plt.show()
                        
-                    
     def node_stats(self):
         lengths ={}
         for n in self.nodes:
@@ -4366,7 +4281,6 @@ class DEH():
             print(l, lengths[l], lengths[l]/2**l)
         return lengths
 
-    
     def error_stats(self, data):
         depth = self.get_depth()
         errors = {}
@@ -4381,7 +4295,6 @@ class DEH():
             
         return errors
     
-    
     def excess_residual(self, node, data):
         resid = self.remainder_at_level(data, len(node))
         ldata = self.get_ldata(data)
@@ -4392,7 +4305,6 @@ class DEH():
         er_sum = np.sum(self.nodes[node].map[valid]*excess_resid)
         
         return er_sum
-    
     
     def internal_split(self, node, data, split_var):
         resid = self.remainder_at_level(data, len(node))
@@ -4410,7 +4322,6 @@ class DEH():
         print(node, s)
         #print(self.internal_variance(node, data).mean())
         return s[0]
-    
     
     def internal_pca(self, node, data):
         resid = self.remainder_at_level(data, len(node))
@@ -4445,7 +4356,6 @@ class DEH():
         
         return np.sum((self.weights*resid.T**2), axis=0)*self.nodes[node0].map*self.nodes[node1].map
                                         
-    
     def rescale_all_nodes(self, split_level, split_var, less_than=True):
         nodes_2_rescale = [n for n in self.nodes if (n+'1') in self.nodes]
         depth = self.get_depth()
@@ -4457,9 +4367,6 @@ class DEH():
                                       split_var=split_var,
                                       less_than=less_than)
                     
-    
-    
-    
     def rescale_node(self, split_level, node, split_var, less_than=True):    
         """
         Assumes simple_predict has already been run
@@ -4497,7 +4404,6 @@ class DEH():
         self.nodes[node+'0'].map = self.nodes[node].map*self.nodes[node+'0'].lmda
         return True
     
-    
     def blur_all_nodes(self, split_var):
         nodes_2_rescale = [n for n in self.nodes if (n+'1') in self.nodes]
         depth = self.get_depth()
@@ -4506,7 +4412,6 @@ class DEH():
                 if len(n)==d:
                     self.center_and_blur_node(node=n, 
                                       split_var=split_var)
-    
     
     def center_and_blur_node(self, node, split_var, is_one=False):
         s = self.nodes[node].splitter
@@ -4535,7 +4440,6 @@ class DEH():
                    weights=self.nodes[node].map)*2
         return clar
 
-                
     def mpmp(self):
         '''
         minimum percentage mixed pixels
@@ -4545,7 +4449,6 @@ class DEH():
         for n in en:
             pmps.append(percentage_mixed_pixels(self.nodes[n].map))
         return np.min(pmps)
-    
     
     def fix_end_classifiers(self, data, split_var, tol=1e-2, s_type='classifier'):
         end_nodes = self.get_end_nodes()
@@ -4597,7 +4500,6 @@ class DEH():
             s = np.array([self.nodes[n].map for n in end_nodes])
             prod = np.prod(np.array([s[i,i] for i in range(len(s))]))
         print(s)    
-        
         
     def variance_minimizers(self, node, data, split_var=(), depth=0, aa=False, uncon=True):
         if depth==0:
@@ -4727,7 +4629,6 @@ class DEH():
         #cut2 = np.argmin((sorted_fd[:,1]+1e-6)**-8*(np.abs(cumulative_fd-targ)+targ/4)**2)
         #return #np.argsort(fddat)[cut1], np.argsort(fddat)[cut2]
         
-        
     def untangle_endmembers(self, image, s_type='max'):
         """
         note that this only works if there are linearly separable pixels within each endmembers cluster
@@ -4747,7 +4648,6 @@ class DEH():
             print(node, " is pure")
         return (plus and minus)
 
-
     def sparse_grow_node(self, data, split_var, to_grow):
         self.grow_node(to_grow)
         a, e0, e1 = quick_split(data[self.nodes[to_grow].map==1])
@@ -4757,7 +4657,6 @@ class DEH():
         mean1 = np.mean(split_var[out>0.5], axis=0)
         splitter = classifiers_2_svm(mean0, mean1)
         self.nodes[to_grow].splitter = splitter
-        
         
     def equiliberate(self, image, n_runs=1e-3, n_pts=1000, sampling_points=(), obj_record=[]):
         self.switch_training(image, beta=0, tol=1e-12, n_update_points=n_pts, 
@@ -4770,7 +4669,6 @@ class DEH():
         for n in self.nodes:
             classifiers.append(np.copy(self.nodes[n].classifier))
         return classifiers
-    
     
     def get_scores(self, gt_map, gt_e, S, E, show=False):
         rows, cols = align_spectra(gt_map, S)
@@ -4827,7 +4725,6 @@ class DEH():
         
         return scoreD
     
-    
     def get_trimmed_network(self, accepted_nodes):
         en = self.rel_end_nodes(accepted_nodes)
         newdeh = copy.deepcopy(self)
@@ -4843,7 +4740,6 @@ class DEH():
                 newdeh.nodes[n+i*'0'] = copy.deepcopy(self.nodes[n])
         return newdeh
     
-    
     def en_classifier_diffs(self, node):
         en = self.get_end_nodes()
         classi_diffs = {}
@@ -4852,7 +4748,6 @@ class DEH():
                 classi_diffs[n] = np.sum((self.nodes[n].classifier-self.nodes[node].classifier)**2)
         return classi_diffs
 
-
     def en_min_max(self):
         mins = {}
         for n in self.get_end_nodes():
@@ -4860,7 +4755,6 @@ class DEH():
             en_diffs = self.en_classifier_diffs(n)
             mins[n] = en_diffs[min(en_diffs, key=en_diffs.get)]
         return (mins[min(mins, key=mins.get)], mins[max(mins, key=mins.get)])
-    
     
     def sparse_grow_node(self, data, split_var, to_grow):
         self.grow_node(to_grow)
@@ -4871,7 +4765,6 @@ class DEH():
         mean1 = np.mean(split_var[out>0.5], axis=0)
         splitter = classifiers_2_svm(mean0, mean1)
         self.nodes[to_grow].splitter = splitter
-        
         
     def equiliberate(self, image, n_runs=100, n_pts=1000, sampling_points=(), obj_record=[],
                      scaling_factor=2, epsilon = 0.1):
@@ -4885,7 +4778,6 @@ class DEH():
                                      alg='simple', obj_record=obj_record, A_tol=1e-4, max_iter=1,
                                      A_protection=False, only_ends=False)
             
-            
     def rel_end_nodes(self, nodes_to_split):
         ren = []
         for node in nodes_to_split:
@@ -4894,7 +4786,6 @@ class DEH():
             if (node + '0' in self.nodes) & (node + '0' not in nodes_to_split):
                 ren.append(node+'0')
         return ren
-    
     
     def node_scoresI(self, data, nodes_to_split):
         ren = self.rel_end_nodes(nodes_to_split)
@@ -4913,7 +4804,6 @@ class DEH():
         print(scores)
         return scores
     
-    
     def adia_split_node(self, data, accepted_nodes):
         scores = self.node_scoresI(data, accepted_nodes)
         to_accept = min(scores, key=scores.get)
@@ -4922,7 +4812,6 @@ class DEH():
         self.sparse_grow_node(d_norm, data, to_accept+'0')
         self.sparse_grow_node(d_norm, data, to_accept+'1')
         return to_accept
-    
     
     def sparsify(self, data, sampling_points, obj_record, n_points, mpp_tol=0.05, step_delta = 0.01,
              reg_max=1):
@@ -4953,11 +4842,9 @@ class DEH():
             deh_mpp = self.mpp(data)
         self.use_bsp = False
     
-    
     def mpp(self, image):
         S = self.simple_predict(image)
         return 1-(S==1).sum() / len(image)
-    
     
     def sparsity_sweep(self, data, sampling_points, obj_record, n_update_points, step_delta=0.01, reg_max = 1):
         deh_mpp = 0.1
@@ -4979,21 +4866,16 @@ class DEH():
         #DEH.sparsifying=False
         self.reg = 0
         
-        
     def pick_to_split(self, data, accepted_nodes):
         scores = self.node_scoresI(data, accepted_nodes)
         to_accept = min(scores, key=scores.get)
         return to_accept
-    
     
     def do_split(self, data, split_node):
         d_norm = (data.T/np.sqrt(np.sum(data**2, axis=-1))).T
         self.sparse_grow_node(d_norm, data, split_node+'0')
         self.sparse_grow_node(d_norm, data, split_node+'1')
         
-        
-        
-    
     def adia_add_nodeII(self, data, accepted_nodes, sampling_points=(), obj_record=(), n_points=0, reg_max=0.2,
                  n_runs=20, scales=4, mpp_tol=0.05, save=False, save_name='default'):
         # Equiliberate 2x
@@ -5031,10 +4913,6 @@ class DEH():
         accepted_nodes.append(to_split)
         return accepted_nodes
         
-        
-    
-    
-    
     def adia_add_node(self, data, accepted_nodes, sampling_points=(), obj_record=(), n_points=0, reg_max=0.2,
                  n_runs=20, scales=4, mpp_tol=0.05, save=False, save_name='default'):
         #sparsify network
@@ -5068,7 +4946,6 @@ class DEH():
         accepted_nodes.append(accepted)
         return accepted_nodes
 
-    
     def adia_grow_network(self, data, n_nodes, n_update_pts= (0,), mpp_tol=0.05, saturation=(), sampling_points=(),
                       reg_max=0.2, n_runs=20, scales=5, save=False, save_name='default', step_size=0.001):
         obj_record=[[0]]
@@ -5122,7 +4999,6 @@ class DEH():
             self.save(save_name+'_' +'eq' + '_' + str(len(self.get_end_nodes()))+'.h5')
 
         return obj_record, accepted_nodes
-    
     
     def accepted_network_stablization(self, data, n_runs=100, n_pts=(0,), obj_record=(), sampling_points=(),
                                  mpp_tol=0.05, step_delta=0.01, reg_max=0.2, name='default'):
@@ -5197,7 +5073,7 @@ class DEH():
 
         print("sparsify")
         self.sparsify(data, sampling_points=sampling_points, obj_record=obj_record,
-                 n_points=n_pts[0], reg_max=reg_max, mpp_tol=mpp_tol)
+                 n_points=n_pts[0], reg_max=reg_max, mpp_tol=mpp_tol, step_delta=step_delta)
         
         self.equiliberate(data, obj_record=obj_record, n_runs=n_runs, scaling_factor=1, epsilon =0.1,
                 n_pts=n_pts[0], sampling_points=sampling_points)
@@ -5261,7 +5137,6 @@ class DEH():
 
         return ppa_name, aa_name
     
-    
     def get_node_scale(self, node, split_var, less_than=True):    
         """
         Assumes simple_predict has already been run
@@ -5282,8 +5157,6 @@ class DEH():
 
         return rel_pix/all_pix
 
-
-    #max node scale
     def max_node_scale(self, split_var):
         max_scale = 0
         for n in self.nodes:
@@ -5293,7 +5166,6 @@ class DEH():
                 scale = 0
             max_scale = np.maximum(max_scale, scale)
         return max_scale
-    
     
     def splitting_nodes(self):
         #simple predict must be run first
@@ -5306,12 +5178,6 @@ class DEH():
                 pass
         return p_nodes
     
-    
-    
-
-    
-                                        
-
 def quick_split(data, tol=1e-6, weights = (), ppa=True):
     if len(weights)==0:
         j0 = data.mean(axis=0)
@@ -5363,7 +5229,6 @@ def quick_split(data, tol=1e-6, weights = (), ppa=True):
             
 def fractional_distance(far, close, q):
     return np.dot(far-q, far-close)/np.sum((far-close)**2)
-    
     
 def find_opt_beta(intercepts, initial_include, num_weights, denom_weights, target = 0, title=""):
     '''
@@ -5444,12 +5309,10 @@ def find_opt_beta(intercepts, initial_include, num_weights, denom_weights, targe
     return np.minimum((beta+old_beta)/2,np.maximum(old_beta-old_slope/denom, 0))
                                      #np.minimum(np.maximum(beta-EPS,0)#, np.maximum(old_beta-old_slope/denom,0))#(old_beta + beta) / 2
 
-            
 def classify_from_partition(data, coef, intercept, threshold=0, spread=1):
     base = (coef@data.T + intercept + 1)/(2)
     trimmed = np.array(np.maximum(np.minimum(base, 1.0),0), dtype=np.float32)
     return trimmed
-    
     
 def svm_from_classifiers(image, classifier0, classifier1):
     #print(image.shape, classifier0.shape)
@@ -5464,12 +5327,10 @@ def svm_from_classifiers(image, classifier0, classifier1):
     lambdas = np.maximum(0, lambdas)
     return lambdas
 
-
 def sparsity(S):
     n = len(S)
     sparsity = (np.sqrt(n)-np.sum(S,axis=0)/np.sqrt(np.sum(S**2,axis=0)))/(np.sqrt(n)-1)
     return sparsity.mean()
-
 
 def classifiers_2_svm(classifier0, classifier1):
     pw = (classifier1 - classifier0)
@@ -5481,7 +5342,6 @@ def classifiers_2_svm(classifier0, classifier1):
     
     return w, d
 
-
 def scaled_2class_svm(resid_image, scaling_factors, classifier0, classifier1):
     scaled_image = (resid_image).T / scaling_factors
     scaled_lambdas = svm_from_classifiers(scaled_image, classifier0, classifier1)
@@ -5489,12 +5349,10 @@ def scaled_2class_svm(resid_image, scaling_factors, classifier0, classifier1):
     two_classes *= scaling_factors
     return two_classes
 
-
 def w_avg(pix, weights):
     num = np.sum(pix.T*weights, axis=1)
     denom = np.sum(weights)
     return num/denom
-    
     
 def group_err(pix, weights):
     avg = w_avg(pix, weights)
@@ -5530,7 +5388,6 @@ def regroup_1it(pix, weights, groups):
     
     return new_groups
 
-
 def rand_sel(qprob_map, number_of_pixels):
     '''
     randomly selects number_of_pixels according to qprob_map probability distribution
@@ -5563,10 +5420,8 @@ def rand_sel(qprob_map, number_of_pixels):
 
     return pixlist
 
-
 def prob(x, beta):
     return np.exp(-x*beta)
-
 
 def beta_update(xs, beta_0, alg_type="expectation", tol=0.1):
     ep = xs[xs > 0]
@@ -5616,11 +5471,9 @@ def beta_update(xs, beta_0, alg_type="expectation", tol=0.1):
             return beta_max
     return beta_0
 
-
 def percentage_mixed_pixels(abus):
     start = abus[abus>0]
     return np.sum(start<1)/len(start)
-
 
 def quick_nn(image_2D, k_size = 3):
     indices = np.zeros(image_2D.shape[:2], dtype=int)
@@ -5654,7 +5507,6 @@ def quick_nn(image_2D, k_size = 3):
                 idx_full = np.ravel_multi_index(idxs[:,idx], image_2D.shape[:2])
                 indices[i,j]=int(idx_full)
     return indices
-
 
 def align_spectra(gt_map, S):
     '''
