@@ -5113,9 +5113,9 @@ class DEH():
 
         #save ppa version
         DEH2.training = 'PPA'
-        ppa_name = name+'_' + 'ppa' + '_FINAL' +'.h5' 
+        ppa_name = name+'_' + 'ppa' +'.h5' 
         print("\n----Save ppa----\n")
-        DEH2.save(name+'_' + 'ppa' + '_FINAL' +'.h5')
+        DEH2.save(name+'_' + 'ppa' +'.h5')
         del DEH2
 
         #turn on aa
@@ -5131,9 +5131,9 @@ class DEH():
 
         #save aa version
         self.training = 'AA'
-        aa_name =  name+'_' + 'aa' + '_FINAL' +'.h5'
+        aa_name =  name+'_' + 'aa'  +'.h5'
         print("\n----Save aa----\n")
-        self.save(name+'_' + 'aa' + '_FINAL' +'.h5')
+        self.save(name+'_' + 'aa' +'.h5')
 
         return ppa_name, aa_name
     
