@@ -347,6 +347,111 @@ class DEH():
         self.full_weights[:] /= np.sqrt(np.sum(ldata**2, axis=1))
         
         self.get_full_weights()
+
+    def set_neighbor_weights_memory_efficient(self, data, batch_size=10000):
+        """
+        Memory-efficient version of set_neighbor_weights that processes data in batches.
+        
+        Parameters:
+        -----------
+        data : ndarray
+            The input data array
+        batch_size : int, default=10000
+            The size of batches to process at once
+            
+        Notes:
+        ------
+        This method reduces memory usage by processing data in smaller batches
+        instead of loading the entire dataset into memory at once.
+        """
+        # Initialize weights array once
+        n_samples = data.shape[0]
+        self.full_weights = np.ones(n_samples)
+        
+        # Process all data to get norms for normalization later
+        if self._use_norm:
+            # Get ldata in batches to avoid holding entire array in memory
+            data_norms = np.zeros(n_samples)
+            for start_idx in range(0, n_samples, batch_size):
+                end_idx = min(start_idx + batch_size, n_samples)
+                batch_indices = np.arange(start_idx, end_idx)
+                
+                # Get ldata for this batch
+                batch_ldata = self.get_ldata(data[batch_indices])
+                
+                # Calculate norms for this batch
+                data_norms[batch_indices] = np.sqrt(np.sum(batch_ldata**2, axis=1))
+        else:
+            # Use regular data norms
+            data_norms = np.sqrt(np.sum(data**2, axis=1))
+        
+        # Get valid neighbor indices
+        rel_data_indices = np.where(self.neighbors > -1)[0]
+        
+        # Process in batches
+        err_mean_sum = 0
+        err_count = 0
+        
+        # First pass to calculate mean error
+        for i in range(0, len(rel_data_indices), batch_size):
+            batch_rel_indices = rel_data_indices[i:i+batch_size]
+            
+            # Get data and neighbor data for this batch
+            if self._use_norm:
+                batch_data = self.get_ldata(data[batch_rel_indices])
+                batch_neighbor_data = self.get_ldata(data[self.neighbors[batch_rel_indices]])
+            else:
+                batch_data = data[batch_rel_indices]
+                batch_neighbor_data = data[self.neighbors[batch_rel_indices]]
+            
+            # Calculate squared differences
+            diffs = batch_data - batch_neighbor_data
+            squared_diffs = np.sum(diffs**2, axis=1)
+            
+            # Add to running mean calculation
+            err_mean_sum += np.sum(np.sqrt(squared_diffs))
+            err_count += len(batch_rel_indices)
+        
+        # Calculate the mean error
+        if err_count > 0:
+            err_mean = err_mean_sum / err_count
+        else:
+            err_mean = 1.0
+            
+        # Second pass to set weights
+        for i in range(0, len(rel_data_indices), batch_size):
+            batch_rel_indices = rel_data_indices[i:i+batch_size]
+            
+            # Get data and neighbor data for this batch
+            if self._use_norm:
+                batch_data = self.get_ldata(data[batch_rel_indices])
+                batch_neighbor_data = self.get_ldata(data[self.neighbors[batch_rel_indices]])
+            else:
+                batch_data = data[batch_rel_indices]
+                batch_neighbor_data = data[self.neighbors[batch_rel_indices]]
+            
+            # Calculate squared differences
+            diffs = batch_data - batch_neighbor_data
+            squared_diffs = np.sum(diffs**2, axis=1)
+            
+            # Set weights for this batch
+            self.full_weights[batch_rel_indices] = 1/(np.sqrt(squared_diffs) + err_mean)
+        
+        # Normalize weights
+        if len(rel_data_indices) > 0:
+            rel_weights_mean = np.mean(self.full_weights[rel_data_indices])
+            if rel_weights_mean > 0:
+                self.full_weights[rel_data_indices] /= rel_weights_mean
+        
+        # Apply data norms normalization
+        # Avoid division by zero
+        nonzero_mask = data_norms > 1e-10
+        self.full_weights[nonzero_mask] /= data_norms[nonzero_mask]
+        
+        # Update weights attribute based on subsample if needed
+        self.get_full_weights()
+        
+        return self.full_weights
         
     def print_nmax(self, level):
         return 0
