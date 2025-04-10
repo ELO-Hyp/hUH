@@ -162,11 +162,8 @@ cython_debug/
 #.idea/
 *.h5
 
-#ignore save folder
-save/
-
-#ignore images folder
-images/
-
 #ignore weights folder
 weights/
+
+#ignore data folder
+data/
