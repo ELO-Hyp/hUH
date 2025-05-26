@@ -2261,7 +2261,7 @@ class DEH():
                     plt.plot(wl, self.nodes[x].classifier/normalizer, label = names[i])
                 else:
                     plt.plot(wl, self.nodes[x].classifier/normalizer, label = i)
-            plt.legend(**kwargs)
+            plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', **kwargs)
 
     def display_map(self, spectrum, ax=plt):
         ax.imshow(np.rot90(self.nodes[spectrum].map.reshape(self.plot_size)),
@@ -4307,6 +4307,501 @@ class DEH():
                 pass
             
     #def lowest_level_spatial_updates(self, data, n_update_points=0, prob_map=(), split_var=(), both=True):
+
+    def node_grad_NEW(self, node, data, scaling_factor=1, var='W', metropolis=False,
+                 split_var=(), only_ends = False):
+        if len(split_var)>0:
+            S=self.simple_predict(split_var.astype(np.float64))
+            sdata = split_var
+        else:
+            S=self.simple_predict(data.astype(np.float64))
+            sdata = data
+
+        #print(node, self.node_clarity(node), "node clarity")
+        self.get_full_weights()
+        
+            
+        #nmpp = self.node_mpp(node)
+        pix_out = (self.nodes[node].splitter[0]@sdata.T + self.nodes[node].splitter[1] + 1)/2 
+        split_pix = np.abs(pix_out-0.5) < 0.5
+        if np.sum(split_pix)==0:
+            # self.hprint(node, " node has no mixed pixels")
+            print(pix_out[:10])
+            
+            self.increment_ui(node, pix_out)
+            self.increment_li(node, pix_out)
+            S = self.simple_predict(sdata.astype(np.float64))
+            #return -1
+            
+        mu = self.nodes[node].mu
+        if self.use_bsp:
+            if self.both_sides_pure(node):
+                r = self.reg
+            else:
+                r = 0
+        else:
+            r = self.reg
+        
+        L = len(self.nodes[node].splitter[0])
+        #if var=='W':
+        #    try:
+        #        r*= split_var.shape[1]
+        #    except AttributeError:
+        #        r*= data.shape[1]
+        #if node == self.exempt_node:
+        #    r = self.reg * self.exemption_rate
+        #else:
+        #    r = self.reg
+        self.get_full_weights()
+        #self.populate_fns(data, alg='simple')
+        depth = self.get_depth()
+        
+        
+        if self.only_ends:
+            start_layer = depth
+        else:
+            start_layer = len(node) + 1
+        #print("start layer", node, start_layer)
+        
+        
+        
+        factors = 1.0 * scaling_factor**np.arange(depth + 1)
+        factors /= np.sum(factors)
+        #print("lmda", self.nodes[node+'0'].lmda.dtype)
+        init_incl = np.abs(self.nodes[node+'0'].lmda - 0.5) < 0.5
+        init_incl1 = np.append(init_incl, [True])
+        
+        ldata = self.get_ldata(data)
+        
+        #o_err = 0
+        #for i in range(start_layer, depth + 1):
+        #    eL = self.remainder_at_level(data, i)
+        #    nodes_level_i = [n for n in self.nodes if len(n)==i]
+        #    nodes_level_i.sort()
+        #    A = np.array([self.nodes[n].map for n in nodes_level_i]).T
+        #    e_type1 = np.sum(np.multiply((eL**2).T, self.weights), axis=0).astype(np.float64).mean()
+        #    e_type2 = -r * np.sum(A**2, axis=1).astype(np.float64).mean()
+        #    o_err += factors[i]*(e_type1 + e_type2)
+        
+        
+
+        
+        if var=='W':
+            num = np.zeros(sdata.shape)
+            na = np.zeros(sdata.shape)
+            nb = np.zeros(sdata.shape)
+            #num2 = np.zeros(sdata.shape)
+            for i in range(start_layer,depth+1):
+                eL = self.remainder_at_level(data, i)
+                
+                                
+                
+                out = self.aggregate_node_at_level(node, i, data)
+                out_reg = self.aggregate_node_at_level(node, i, sdata, vtype='a')
+                if metropolis:
+                    werr = np.sum(np.multiply(eL, out), axis=1)
+                else:
+                    #werr = np.sum(np.multiply(eL, out), axis=1)*self.nodes[node].map
+                    nodes_level_i = [n for n in self.nodes if len(n)==i]
+                    nodes_level_i.sort()                    
+                    A = np.array([self.nodes[n].map for n in nodes_level_i]).T
+                    
+                    
+                    
+                    #is_exempt = np.array([self.exempt_node in i for i in nodes_level_i])
+                    #A *= 1 #+ 2 * is_exempt * (1 - self.exemption_rate)
+                    werr = np.sum(np.multiply(eL, out), axis=1)
+                    na += factors[i]*np.multiply(sdata.T,np.multiply(werr*self.nodes[node].map, self.weights)).T
+                    Areg = np.sum(np.multiply(A, out_reg), axis=1)
+                    nb += factors[i]*np.multiply(sdata.T,np.multiply(Areg*self.nodes[node].map, self.weights)).T
+                    ## moved where weights are applied, should be before Areg is introduced:
+                    werr = np.multiply(self.weights, werr)
+                    werr += r*Areg
+                    if self.use_bonus_boost:
+                        bonus_boosts = np.array([self.nodes[n].bonus_boost for n in nodes_level_i])
+                        werr += np.sum(np.multiply(bonus_boosts, out_reg), axis=1)#*Areg #*A
+                        r_balance = np.array([self.nodes[n].sparsity_balance for n in nodes_level_i])
+                        werr += np.sum(np.multiply(r_balance*A, out_reg), axis=1)
+                    werr *= self.nodes[node].map
+                werr_w = werr
+                #werr_w = np.multiply(self.weights, werr)
+                #print(node, werr_w.shape, sdata.shape, num.shape)
+                num += factors[i]*np.multiply(sdata.T, werr_w).T
+                
+            l2_dir = 2*self.nodes[node].splitter[0].reshape(1,-1)
+            l2_mean = 2*np.sum(self.nodes[node].splitter[0])*np.ones((1,L))/L
+            num = np.append(num, mu*len(num)*(l2_dir + l2_mean), axis=0)
+            
+                
+            #plt.plot(num[-1])
+            
+               
+            self.nodes[node].W_update = -np.mean(num[init_incl1], axis=0)
+            #plt.plot(-np.mean(na[init_incl], axis=0))
+            #plt.plot(-np.mean(num[init_incl1], axis=0))
+            #plt.show()
+            #fig, ax = plt.subplots()
+            #ax.plot(-np.mean(num[init_incl1][:-1], axis=0))
+            #ax.plot(self.nodes[node].W_update)
+            #ax0 = ax.twinx()
+            #ax0.plot(self.nodes[node].splitter[0], '--', color='black')
+            #plt.show()
+
+
+        #print("wu", self.nodes[node].W_update)
+        if var=='W':
+            #print(self.nodes[node].W_update)
+            xw = sdata@self.nodes[node].W_update/2
+            #print(xw)
+            if xw.any()==0:
+                plt.plot(self.nodes[node].W_update)
+                plt.title(node)
+                plt.show()
+                self.nodes[node].splitter=(0*self.nodes[node].splitter[0],
+                                           0*self.nodes[node].splitter[1])
+                return -1
+                #self.logger.warning('we have a problem with the W update')
+                #assert False
+        elif var=='h':
+            xw = 0.5
+            
+        #print(node, var, np.mean(np.abs(xw)),'xw')
+
+        num = np.zeros(data.shape[0])
+        denom = np.zeros(data.shape[0])
+
+        factors = 1.0 * scaling_factor**np.arange(depth + 1)
+        factors /= np.sum(factors)
+        
+        o_err = 0 
+        just_r_denom = np.zeros(data.shape[0])
+        just_r_num = np.zeros(data.shape[0])
+        for i in range(start_layer, depth + 1):#range(len(node)+1,depth+1):
+            eL = self.remainder_at_level(data, i)
+            out = self.aggregate_node_at_level(node, i, data)
+            out_reg = self.aggregate_node_at_level(node, i, data, vtype='a')
+
+            nodes_level_i = [n for n in self.nodes if len(n)==i]
+            nodes_level_i.sort()
+            A = np.array([self.nodes[n].map for n in nodes_level_i]).T
+            werr = np.sum(np.multiply(eL, out), axis=1)
+            Areg = np.sum(np.multiply(A, out_reg), axis=1)
+            #new line applies weights before including sparsity promotion
+            werr = np.multiply(self.weights, werr)
+            werr += r*Areg#*self.nodes[node].map #+
+            if self.use_bonus_boost:
+                bonus_boosts = np.array([self.nodes[n].bonus_boost for n in nodes_level_i])
+                werr += np.sum(np.multiply(bonus_boosts, out_reg), axis=1)
+                r_balance = np.array([self.nodes[n].sparsity_balance for n in nodes_level_i])
+                werr += np.sum(np.multiply(r_balance*A, out_reg), axis=1)
+
+            #werr *= self.nodes[node].map
+            werr_w = np.multiply(werr, xw)
+            #werr_w = np.multiply(np.multiply(self.weights, werr), xw)
+            
+            d_sum = np.multiply(np.sum(out**2, axis=1),self.weights) - r*np.sum(out_reg**2, axis=1) # - r*np.sum(out_reg**2, axis=1)
+            #print(np.sum(out[init_incl]**2),np.sum(out_reg[init_incl]**2)) 
+            if self.use_bonus_boost:
+                d_sum -= np.sum((np.multiply(r_balance, out_reg)*out_reg), axis=1)
+            #nl = np.multiply(self.weights, np.multiply(d_sum,  xw**2))
+            nl = np.multiply(d_sum,  xw**2)
+            if metropolis:
+                num += factors[i]*werr_w#*self.nodes[node].map
+                denom += factors[i]*nl*self.nodes[node].map
+            else:    
+                num += factors[i]*werr_w*self.nodes[node].map
+                denom += factors[i]*nl*self.nodes[node].map**2
+                
+            #error calculation
+            e_type1 = np.sum(np.multiply((eL**2).T, self.weights), axis=0).astype(np.float64).mean()
+            e_type2 = -r * np.sum(np.multiply(A.T**2, 1), axis=0).astype(np.float64).mean()
+            o_err += factors[i]*(e_type1 + e_type2)
+        #print(node, num.shape, denom.shape)
+        if (var=='W'):
+            l2_dir = 2*np.dot(self.nodes[node].W_update, self.nodes[node].splitter[0])
+            l2_mean = 2*np.sum(self.nodes[node].splitter[0])*np.sum(self.nodes[node].W_update)
+            num = np.append(num, [mu*len(num)*(l2_dir + l2_mean)], axis=0)
+            l2_dir_D = np.sum(self.nodes[node].W_update**2)
+            l2_mean_D = np.sum(self.nodes[node].W_update)**2
+            denom = np.append(denom, [mu*len(num)*(l2_dir_D + l2_mean_D)], axis=0)#removed -
+        else:
+            num = np.append(num, [2*mu*self.nodes[node].splitter[1]*len(num)*len(self.nodes[node].splitter[0])], axis=0)
+            denom = np.append(denom, [mu*len(num)*len(self.nodes[node].splitter[0])])
+        
+        #denom /= self.a_speed
+
+        
+        if np.sum(init_incl1)==0:
+            return -1
+        pl = (sdata@self.nodes[node].splitter[0] + self.nodes[node].splitter[1] +1)/2
+        #print(pl.dtype)
+        int_level1 = (1-pl)/(xw)
+        int_level0 = (-pl)/(xw)
+        #if var == 'h':
+        #    int_level1 *= -1
+        #    int_level0 *= -1
+        #intercepts = np.minimum(int_level1, int_level0)
+        if np.sum(denom[init_incl1]) > 0:
+            beta = -np.sum(num[init_incl1])/np.sum(denom[init_incl1])
+        else:
+            bsign = np.sign(-np.sum(num[init_incl1])/np.sum(denom[init_incl1]))
+            beta = -bsign
+        #print("denom", np.sum(denom[init_incl1]), np.sum(num[init_incl1]))
+
+            
+        #print(int_level0.dtype, int_level1.dtype, int_level0[np.argmin(np.abs(int_level0))],
+        # #     int_level1[np.argmin(np.abs(int_level1))])
+        
+        
+        if var=='h':
+            beta_flag=False
+            if beta < 0:
+                beta = -beta
+                int_level0 = -int_level0
+                int_level1 = -int_level1
+                #denom = -denom
+                num = -num
+                beta_flag = True
+        #assert beta > 0 , "gradient in wrong direction"
+       
+                
+        #print(int_level0.dtype, int_level1.dtype, int_level0[np.argmin(np.abs(int_level0))],
+        #      int_level1[np.argmin(np.abs(int_level1))])
+        int_level0[int_level0<1e-64]=10**16
+        int_level1[int_level1<1e-64]=10**16
+       
+        intercepts = np.minimum(int_level1, int_level0)
+        intercepts = np.append(intercepts, [10**17])
+        
+        # self.hprint('veta,', var, beta, intercepts.min(), np.sum(init_incl),np.sum(num[init_incl1]), np.sum(denom[init_incl1]))
+        
+        
+        if beta > intercepts.min():
+            #beta *=0.95
+            beta_x = beta
+            #if self.sparsifying==False:
+            beta = find_opt_beta(intercepts, init_incl1, num, denom, title=node+var)
+            #else:
+            #    beta = find_opt_beta(intercepts, init_incl1, num, denom, target = 0.5)
+            #betax = np.argmin([np.abs(beta_0), np.abs(beta)])
+            #beta = [beta_0, beta][betax]
+            
+            #if np.abs(beta) > 2*np.as(beta_0):
+            #    beta = beta_0
+            # self.hprint('beta,', beta, beta_x)
+            #if beta < intercepts.min():
+            #    beta = intercepts.min() - 1e-16
+                
+        if var=='h':
+            print(beta_flag, self.nodes[node].splitter[1])
+            
+        if beta > 10**10:
+            beta = 0#beta_0
+        #beta=beta_0
+        if self.continuous_beta_updates:
+            rel_betas = [0]
+            for b in np.sort(intercepts):
+                if b < beta:
+                    rel_betas.append(b)
+            rel_betas.append(beta)
+            all_errors = [o_err]
+            delta_betas = [rel_betas[i]-rel_betas[i-1] for i in range(1, len(rel_betas))]
+
+
+        if var=='W':    
+            if beta > 0:
+                beta=beta
+            else:
+                beta = 0
+        elif var=='h':
+            if np.isnan(beta):
+                beta=0
+            if beta_flag:
+                beta=-beta
+        ##print("beta", beta)
+        #accelerator = 1#.5
+        beta *= self.a_speed
+        beta_0 = beta 
+            
+        old_splitter = copy.deepcopy(self.nodes[node].splitter)
+        if self.continuous_beta_updates:
+            for db in delta_betas:
+                if var=='W':
+                    splitter = db*self.nodes[node].W_update + old_splitter[0], old_splitter[1]
+                elif var=='h':
+                    splitter = old_splitter[0], db*np.sign(beta) + old_splitter[1]
+                old_splitter = copy.deepcopy(self.nodes[node].splitter)
+                self.nodes[node].splitter = splitter
+                S=self.simple_predict(sdata.astype(np.float64))
+                
+                self.get_full_weights()
+                n_err = 0
+                for i in range(start_layer, depth + 1):
+                    eL = self.remainder_at_level(data.astype(np.float64), i)
+                    nodes_level_i = [n for n in self.nodes if len(n)==i]
+                    nodes_level_i.sort()
+                    A = np.array([self.nodes[n].map for n in nodes_level_i]).T
+                    e_type1 = np.sum(np.multiply((eL.astype(np.float64)**2).T, self.weights), axis=0).astype(np.float64).mean()
+                    e_type2 = -r * np.sum(np.multiply(A.T**2, 1), axis=0).astype(np.float64).mean()
+                    n_err += factors[i]*(e_type1 + e_type2)
+                all_errors.append(n_err)
+            plt.plot(rel_betas, all_errors)
+            plt.show()
+        else:
+            if var=='W':
+                splitter = beta*self.nodes[node].W_update + old_splitter[0], old_splitter[1]
+            elif var=='h':
+                splitter = old_splitter[0], beta + old_splitter[1]
+            self.nodes[node].splitter = splitter
+        
+            
+        S=self.simple_predict(sdata.astype(np.float64))
+        #print(node, self.node_clarity(node), "node clarity")
+        self.get_full_weights()
+        n_err = 0
+        for i in range(start_layer, depth + 1):
+            eL = self.remainder_at_level(data, i)
+            nodes_level_i = [n for n in self.nodes if len(n)==i]
+            nodes_level_i.sort()
+            A = np.array([self.nodes[n].map for n in nodes_level_i]).T
+            e_type1 = np.sum(np.multiply((eL**2).T, self.weights), axis=0).astype(np.float64).mean()
+            e_type2 = -r * np.sum(np.multiply(A.T**2, 1), axis=0).astype(np.float64).mean()
+            n_err += factors[i]*(e_type1 + e_type2)
+
+        n_incl = np.abs(self.nodes[node+'0'].lmda - 0.5) < 0.5
+        # self.hprint('err', o_err < n_err,  var, o_err, n_err)
+        
+        self.old_splitter = old_splitter
+        #assert o_err > n_err 
+        
+        if n_err > o_err:
+            betas = [0]
+            scores = [o_err]
+            include = [np.sum(init_incl)]
+            e1_scores = []
+            e2_scores = []
+            
+            
+            splits = np.arange(-10,15)*0.1
+            layerwise_errors = np.zeros((depth-start_layer+1, 25), dtype=np.float32)
+            # self.hprint(splits)
+            #if var=='W':
+            #    plt.plot(splitter[0])
+            #    plt.plot(old_splitter[0])
+            if len(data) == (self.plot_size[0]*self.plot_size[1]):
+                wholeim = True
+            else:
+                wholeim = False
+            for i, j in enumerate(splits):
+                beta_X = beta*j
+                self.nodes[node].splitter = old_splitter
+                if var=='W':
+                    splitter = old_splitter[0] + beta_X*self.nodes[node].W_update, old_splitter[1]
+                if var=='h':
+                    splitter = old_splitter[0], old_splitter[1] + beta_X
+                #if var=='W':
+                #    plt.plot(splitter[0])
+                self.nodes[node].splitter = splitter
+                
+                S = self.simple_predict(sdata.astype(np.float64))
+                self.get_full_weights()
+                eL = self.remainder_at_level(data, depth)
+                err = 0
+                e1 = 0
+                e2 = 0
+                for k in range(start_layer, depth + 1):
+                    eL = self.remainder_at_level(data, k)
+                    nodes_level_i = [n for n in self.nodes if len(n)==k]
+                    nodes_level_i.sort()
+                    A = np.array([self.nodes[n].map for n in nodes_level_i]).T
+                    #if wholeim:
+                    #    plt.imshow(np.mean(np.multiply((eL**2).T, self.weights), axis=0).reshape(self.plot_size))
+                    #    plt.show()
+                    e_type1 = np.sum(np.multiply((eL**2).T, self.weights), axis=0).astype(np.float64).mean()
+                    e_type2 = -r * np.sum(np.multiply(A.T**2, self.weights), axis=0).astype(np.float64).mean()
+                    err += factors[k]*(e_type1 + e_type2)
+                    e1 += factors[k]*e_type1
+                    e2 += factors[k]*e_type2
+                    layerwise_errors[k-start_layer,i] = factors[k]*e_type1
+                #err = np.sum(np.multiply((eL**2).T.astype(np.float64), self.weights), axis=0).mean() - r * np.sum(S.astype(np.float64)**2, axis=0).mean()
+                incl = np.abs(self.nodes[node+'0'].lmda - 0.5) < 0.5
+                betas.append(beta_X)
+                scores.append(err)
+                include.append(np.sum(incl))
+                e1_scores.append(e1)
+                e2_scores.append(e2)
+            #if var=='W':
+            #    plt.show()
+            betas.append(beta)
+            scores.append(n_err)
+            include.append(np.sum(n_incl))
+            #print(betas, scores)
+            fig = plt.figure()
+            ax = fig.add_subplot(111)    
+            ax.plot(np.array(betas)[1:-1], np.array(scores)[1:-1],'.-')
+            ax2 = ax.twinx()
+            ax2.plot(betas, include, '.-',color='green')
+            ax.set_title(node + " " + var + " r is " + str(r))
+            ax.scatter(np.array(betas)[0], np.array(scores)[0], color='black',marker='x')
+            ax.scatter(np.array(betas)[-1], np.array(scores)[-1], color='red',marker='x')
+            plt.show()
+            
+            fig = plt.figure()
+            ax = fig.add_subplot(111)    
+            ax.plot(np.array(betas)[1:-1], e1_scores-e1_scores[10], color='black')
+            #ax2 = ax.twinx()
+            ax.plot(np.array(betas)[1:-1], e2_scores-e2_scores[10], color='orange')
+            ax.plot(np.array(betas)[1:-1], layerwise_errors.T-layerwise_errors[:,10],'--')
+            plt.show()
+
+
+            beta_min = np.argmin(scores)
+            if var=='W':
+                splitter = beta_0*self.nodes[node].W_update + old_splitter[0], old_splitter[1]
+                #splitter = betas[beta_min]*self.nodes[node].W_update + old_splitter[0], old_splitter[1]
+            elif var=='h':
+                splitter = old_splitter[0], beta_0 + old_splitter[1]
+                #splitter = old_splitter[0], betas[beta_min] + old_splitter[1]
+            self.nodes[node].splitter = splitter
+            S=self.simple_predict(sdata)
+            #print(node, self.node_clarity(node), "node clarity")
+            self.get_full_weights()
+            eL = self.remainder_at_level(data, depth)
+            #print(node, var, ' include ', np.sum(init_incl))
+            nn_err = np.sum(np.multiply((eL**2).T, self.weights), axis=0).mean() - r * np.sum(S**2, axis=0).mean()
+            # self.hprint('err', var, o_err, n_err, nn_err, scores[beta_min], 'beta', betas[beta_min], beta)
+            #if len(node) > 0:
+            #    assert o_err > n_err 
+            
+        map0 = np.sum(self.nodes[node+'0'].map)==0
+        map1 = np.sum(self.nodes[node+'1'].map)==0
+        if map0|map1:
+            # self.hprint("back to old splitter", node, var)
+            self.nodes[node].splitter = old_splitter
+            
+        #plt.imshow(self.nodes[node+'0'].lmda.reshape(self.plot_size))
+        #plt.colorbar()
+        #plt.show()
+        #self.display_level(1)
+        #if o_err<n_err:
+        #    self.hprint("back to old splitter", node, var)
+        #    self.nodes[node].splitter = old_splitter
+        #    for n in self.nodes:
+        #        try:
+        #            self.nodes[n].W_update[:]=0
+        #            self.nodes[n].h_update=0
+        #        except AttributeError:
+        #            pass
+        #    return -1
+        #self.nodes[node].splitter = old_splitter
+        for n in self.nodes:
+            try:
+                self.nodes[n].W_update[:]=0
+                self.nodes[n].h_update=0
+            except AttributeError:
+                pass
+            
+
         
     def one_step_cyclic(self, data, scaling_factor=2, n_update_points=0, lowest=False, prob_map=(),
                        split_var=(), both=True, only_ends=False, levels=()):
