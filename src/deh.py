@@ -483,8 +483,8 @@ class DEH():
         #
         if self._use_norm == False:
             self.full_weights[:] /= base_norm
-        #else:
-        #    self.full_weights[:] = 1
+        else:
+            self.full_weights[:] = 1
         
         self.get_full_weights()
         
@@ -819,7 +819,6 @@ class DEH():
             S.append(self.nodes[i].map)
         S = np.array(S)
         return S
-    
     
     
     def lmda_2_map(self):
@@ -4195,6 +4194,7 @@ class DEH():
         depth = self.get_depth()
         
         
+        
         factors = 1.0 * scaling_factor**np.arange(depth + 1)
         factors /= np.sum(factors)
         if r == 0:
@@ -5521,6 +5521,7 @@ class DEH():
                         self.rescale_node(mpp_tol, n, split_var, less_than=False)
             if ncycles > max_iter:
                 go_on = False
+
            
         self.use_bsp = False
         #self.only_ends = oeold
@@ -5551,8 +5552,7 @@ class DEH():
         if mode=='min':
             return np.min(nodal_mpps)
         elif mode=='max':
-            return np.max(nodal_mpps)
-    
+            return np.max(nodal_mpps)    
     
     def full_mpp(self, image, level=-1):
         S = self.simple_predict(image, level=level)
@@ -5613,6 +5613,7 @@ class DEH():
                             split_var=()):
         if len(split_var)==0:
             split_var = data
+
         deh_mpp = 0.1
         self.reg = 0
         i=0
@@ -5916,6 +5917,7 @@ class DEH():
         #if len(saturation)==len(data):
         #    self.full_weights[saturation] = 0
         #self.get_full_weights()
+
         self.parameter_initialization(data)
         self.wf = lambda x: self.get_full_weights()
 
@@ -6183,6 +6185,7 @@ class DEH():
                     self.nodes[en].deh.clear_maps()
                 except ValueError:
                     self.nodes[en].deh.clear_maps()
+
                     
             #select network
             print(self.endnode_scores)
@@ -7143,8 +7146,7 @@ class DEH():
         offset_adjustment = 1-scale
         sp_b += offset_adjustment
         self.nodes[node].splitter = [sp_a, sp_b]
-        return sp_a, sp_b
-    
+        return sp_a, sp_b    
     
     def adjust_upper(self, node, new_upper):
         splitter = self.nodes[node].splitter
