@@ -93,13 +93,13 @@ class DEH():
         self.approach_rate=0.1
         self.spread = 2
         self.plot_size = (239,171)
-        self.plot_aspect = 0.3
+        self.plot_aspect = 1
         self.zeta=0.1
         self.up = 0
         self.history = []
         self.S_MAX=2
         self.weight_power=0
-        self.verbose = True
+        self.verbose = False
         self.Cnorm = 1
         self.max_iter = 200
         self.level_scaling = 1.5
@@ -107,13 +107,13 @@ class DEH():
         self.node_record = {}
         self.score_record = []
         self._use_norm = False
-        self.aa = True
+        self.aa = False
         self.uncon = False
         self.eps = 0.00
         self.subsamp = []
         self.n_update_pts = 0
         # proportion mixed pixels when adding a node
-        self.mixed_pix = 0.1
+        self.mixed_pix = 0
         self.exempt_node = '2'
         self.exemption_rate = 0
         self.opts = {}
@@ -137,7 +137,7 @@ class DEH():
         self.update_spectra = True
         self.continuous_beta_updates = False
         self.sample_sizes = (0,0)
-        self.scaling_factor = 1
+        self.scaling_factor = 2
         self.level_limit=255
         
         self.log_filename = log_filename
@@ -6466,7 +6466,7 @@ class DEH():
                 n_pts=n_pts[-1], sampling_points=sampling_points, split_var=split_var,
                                  increment=True)
             self.gentle_sparsify(data, n_pts[-1], mpp_tol+(i+1)*mpp_delta, n_runs, split_var=split_var)
-            self.scaling_factor/=np.sqrt(2)
+            #self.scaling_factor/=np.sqrt(2)
         
         
         
@@ -6518,7 +6518,7 @@ class DEH():
                 n_pts=n_pts[-1], sampling_points=sampling_points, split_var=split_var,
                                  increment=True)
             self.gentle_sparsify(data, n_pts[-1], mpp_tol+(i+1)*mpp_delta, n_runs, split_var=split_var)
-            self.scaling_factor/=np.sqrt(2)
+            #self.scaling_factor/=np.sqrt(2)
         
         
         self.only_ends=True   
