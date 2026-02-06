@@ -18,6 +18,9 @@ class DAAA():
         self.PPA = False
         self.cos = False
         self.cos_per = 1
+        self.use_weights=False
+        self.verbose=True
+        
 
     def _initialize(self, data):
         self.iteration = 0
@@ -28,6 +31,11 @@ class DAAA():
         self.normalize()
         #self.normalize_W()
         self.T = self.initial_regularization
+        if self.use_weights:
+            self.weights = 1/np.sqrt((data**2).sum(axis=0))
+        else:
+            self.weights = np.ones(data.shape[1])
+    
         
     def normalize(self):
         '''
@@ -53,6 +61,7 @@ class DAAA():
     def update_W(self, data):
         '''
         not used
+        does not use weights
         '''
         self.W = np.multiply(self.W, np.multiply(data@self.H.T, 1/(self.W@self.H@self.H.T)))
         self.normalize_W()
@@ -61,9 +70,9 @@ class DAAA():
         for i in range(self.n_components):
             
             err = data - self.W@self.H
-            err_avg = err@self.H.T
+            err_avg = err@((self.weights*self.H).T)
             dW = (data.T - self.W[:,i]).T 
-            denoms = np.sum(dW**2, axis=0) * np.dot(self.H[i,:],self.H[i,:])  
+            denoms = np.sum(dW**2, axis=0) * np.dot(self.weights*self.H[i,:],self.H[i,:])  
             impact = err_avg[:,i]@dW
             if self.PPA:
                 beta_est = np.ones(len(err.T))
@@ -109,6 +118,8 @@ class DAAA():
     def train(self, data):
         for i in range(self.epochs*self.time_constant):
             self.one_iterate(data)
+            if self.verbose:
+                print(objective(data.T, self.W, self.H, self.T, self.weights))
             
     def save(self, name):
         np.savez(name, H=self.H, W=self.W)
@@ -125,7 +136,7 @@ class DAAA():
             self.iteration+= 1
             np.random.shuffle(order)
             for j in order:
-                self.W, self.H = SA_update(Y, self.W, self.H, gamma, j, self.T)
+                self.W, self.H = SA_update(Y, self.W, self.H, gamma, j, self.T, self.weights)
             self.T = self.initial_regularization*np.exp(-self.iteration / self.time_constant)
             print("T is now ", self.T)
             
@@ -137,10 +148,10 @@ class DAAA():
         diff = 1
         while diff > tol:
             np.random.shuffle(order)
-            old_obj = objective(X, self.W, self.H, gamma)
+            old_obj = objective(X, self.W, self.H, gamma, self.weights)
             for j in order:
                 self.H = FCLS_onestep(X, self.W, self.H, j, gamma)
-            new_obj = objective(X, self.W, self.H, gamma)
+            new_obj = objective(X, self.W, self.H, gamma, self.weights)
             diff = (1 - new_obj/old_obj)
             print("update size is ", new_obj, old_obj)
         return H
@@ -200,15 +211,15 @@ def update_all_abundances(Y, W, H, gamma):
         H[:,cas>0] /= cas[cas>0]
         H *= (1-lam)
         H[i] = lam
-        print((np.sum((Y.T-W@H)**2)+gamma*np.sum((H)**2))/len(Y))
+       
         #print((gamma*np.sum((H)**2))/len(Y))
     
     return H
 
-def SA_update(Y,W,H,gamma, ID_n, T):
+def SA_update(Y,W,H,gamma, ID_n, T, weights):
     L = len(Y)
     s = len(H)
-    original_obj = objective(Y,W,H,gamma)
+    original_obj = objective(Y,W,H,gamma,weights)
     new_pix_num = np.random.choice(L, 1, p=H[ID_n]/H[ID_n].sum())#np.random.randint(100)
     nW = copy.deepcopy(W)
     nW[:,ID_n] = Y[new_pix_num]
@@ -234,7 +245,7 @@ def SA_update(Y,W,H,gamma, ID_n, T):
     #nH[ID_n] = lam
     
     r = np.random.rand()
-    new_obj = objective(Y, nW, nH, gamma)
+    new_obj = objective(Y, nW, nH, gamma,weights)
     dE = new_obj-original_obj
     print(new_obj, original_obj, np.exp(-dE/T), r)
     accept = r < np.exp(-dE/T)
@@ -243,8 +254,8 @@ def SA_update(Y,W,H,gamma, ID_n, T):
     else:
         return W, H
 
-def objective(Y, W, H, gamma):
-    return((np.sum((Y.T-W@H)**2)+gamma*np.sum((H)**2))/len(Y))
+def objective(Y, W, H, gamma, weights):
+    return((np.sum(weights*(Y.T-W@H)**2)+gamma*np.sum((H)**2))/len(Y))
 
 def FCLS_onestep(X, W, H, ID_n, gamma):
     L = len(H)
