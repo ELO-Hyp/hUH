@@ -22,6 +22,12 @@ class DAAA():
         self.verbose=True
         
 
+    def init_tiered(self, max_rej=5):
+        self.tiered = True
+        self.tier = 0
+        self.max_rej = 5
+        self.rejections=0
+    
     def _initialize(self, data):
         self.iteration = 0
         self.W = np.random.rand(data.shape[0], self.n_components)
@@ -128,15 +134,28 @@ class DAAA():
     def update_all_abundances_BCD(self, data):
         self.H = update_all_abundances(data.T, self.W, self.H, self.T)
         
-    def SA_update_series(self, Y, gamma):
+    def SA_update_series(self, Y, gamma, reset_iter=True):
         n_steps = self.time_constant*self.epochs
-        self.iteration = 0 
+        if reset_iter:
+            self.iteration = 0 
         order = np.arange(len(self.H))
         while  self.iteration < n_steps:
             self.iteration+= 1
             np.random.shuffle(order)
             for j in order:
-                self.W, self.H = SA_update(Y, self.W, self.H, gamma, j, self.T, self.weights)
+                if self.tiered:
+                    prob_type = self.tier
+                else:
+                    prob_type = 2
+                self.W, self.H, accept = SA_update(Y, self.W, self.H, gamma, j, self.T, self.weights, prob_type)
+                if self.tiered:
+                    if accept==0:
+                        self.rejections += 1
+                    else:
+                        self.rejections=0
+                    if self.rejections > self.max_rej:
+                        self.tier+=1
+                        self.rejections=0
             self.T = self.initial_regularization*np.exp(-self.iteration / self.time_constant)
             print("T is now ", self.T)
             
@@ -216,11 +235,16 @@ def update_all_abundances(Y, W, H, gamma):
     
     return H
 
-def SA_update(Y,W,H,gamma, ID_n, T, weights):
+def SA_update(Y,W,H,gamma, ID_n, T, weights, prob_type=2):
     L = len(Y)
     s = len(H)
     original_obj = objective(Y,W,H,gamma,weights)
-    new_pix_num = np.random.choice(L, 1, p=H[ID_n]/H[ID_n].sum())#np.random.randint(100)
+    if prob_type==1:
+        new_pix_num = np.random.choice(L, 1, p=(H[ID_n]>0)/(H[ID_n]>0).sum())
+    elif prob_type==0:
+        new_pix_num = np.random.choice(L, 1)
+    else:
+        new_pix_num = np.random.choice(L, 1, p=H[ID_n]/H[ID_n].sum())
     nW = copy.deepcopy(W)
     nW[:,ID_n] = Y[new_pix_num]
     #print(nW)
@@ -247,12 +271,16 @@ def SA_update(Y,W,H,gamma, ID_n, T, weights):
     r = np.random.rand()
     new_obj = objective(Y, nW, nH, gamma,weights)
     dE = new_obj-original_obj
-    print(new_obj, original_obj, np.exp(-dE/T), r)
+    #print(new_obj, original_obj, np.exp(-dE/T), r)
     accept = r < np.exp(-dE/T)
     if accept:
-        return nW, nH
+        print(new_obj, original_obj, np.exp(-dE/T), r)
     else:
-        return W, H
+        print('*',new_obj, original_obj, np.exp(-dE/T), r)
+    if accept:
+        return nW, nH, accept
+    else:
+        return W, H, accept
 
 def objective(Y, W, H, gamma, weights):
     return((np.sum(weights*(Y.T-W@H)**2)+gamma*np.sum((H)**2))/len(Y))
