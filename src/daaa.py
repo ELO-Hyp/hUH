@@ -20,6 +20,7 @@ class DAAA():
         self.cos_per = 1
         self.use_weights=False
         self.verbose=True
+        self.obj = 'L2'
         
 
     def init_tiered(self, max_rej=5):
@@ -32,13 +33,18 @@ class DAAA():
         self.iteration = 0
         self.W = np.random.rand(data.shape[0], self.n_components)
         for i in range(self.n_components):
-            self.W[:,i] = np.mean(data, axis=1)
-        self.H = (1/self.n_components)*(1+np.random.rand(self.n_components, data.shape[1]))
+            #self.W[:,i] = np.mean(data, axis=1)
+            self.W[:,i] = data[:,i]
+        self.H = np.zeros((self.n_components, data.shape[1]))
+        self.H[1,:] = 1
         self.normalize()
         #self.normalize_W()
         self.T = self.initial_regularization
         if self.use_weights:
-            self.weights = 1/np.sqrt((data**2).sum(axis=0))
+            if self.obj=='L1':
+                self.weights = 1/data.sum(axis=0)
+            else:
+                self.weights = 1/np.sqrt((data**2).sum(axis=0))
         else:
             self.weights = np.ones(data.shape[1])
     
@@ -147,7 +153,7 @@ class DAAA():
                     prob_type = self.tier
                 else:
                     prob_type = 2
-                self.W, self.H, accept = SA_update(Y, self.W, self.H, gamma, j, self.T, self.weights, prob_type)
+                self.W, self.H, accept = SA_update(Y, self.W, self.H, gamma, j, self.T, self.weights, prob_type, self.obj)
                 if self.tiered:
                     if accept==0:
                         self.rejections += 1
@@ -235,10 +241,19 @@ def update_all_abundances(Y, W, H, gamma):
     
     return H
 
-def SA_update(Y,W,H,gamma, ID_n, T, weights, prob_type=2):
+def SA_update(Y,W,H,gamma, ID_n, T, weights, prob_type=2, obj='L2'):
     L = len(Y)
     s = len(H)
-    original_obj = objective(Y,W,H,gamma,weights)
+    if obj=='L2':
+        original_obj = objective(Y,W,H,gamma,weights)
+    elif obj=='Sp':
+        original_obj = sp_objective(H)
+    elif obj=='SpS':
+        original_obj = (sp_objective(H) + size_objective(H))/2
+    elif obj=='L1':
+        original_obj = objectiveL1(Y,W,H,gamma,weights)
+    elif obj=='Size':
+        original_obj = (size2_objective(H))
     if prob_type==1:
         new_pix_num = np.random.choice(L, 1, p=(H[ID_n]>0)/(H[ID_n]>0).sum())
     elif prob_type==0:
@@ -269,7 +284,16 @@ def SA_update(Y,W,H,gamma, ID_n, T, weights, prob_type=2):
     #nH[ID_n] = lam
     
     r = np.random.rand()
-    new_obj = objective(Y, nW, nH, gamma,weights)
+    if obj=='L2':
+        new_obj = objective(Y, nW, nH, gamma,weights)
+    elif obj=='Sp':
+        new_obj = sp_objective(nH)
+    elif obj=='SpS':
+        new_obj = (sp_objective(nH) + size_objective(nH))/2
+    elif obj=='L1':
+        new_obj = objectiveL1(Y,nW,nH,gamma,weights)
+    elif obj=='Size':
+        new_obj = (size2_objective(nH))
     dE = new_obj-original_obj
     #print(new_obj, original_obj, np.exp(-dE/T), r)
     accept = r < np.exp(-dE/T)
@@ -284,6 +308,24 @@ def SA_update(Y,W,H,gamma, ID_n, T, weights, prob_type=2):
 
 def objective(Y, W, H, gamma, weights):
     return((np.sum(weights*(Y.T-W@H)**2)+gamma*np.sum((H)**2))/len(Y))
+
+def objectiveL1(Y, W, H, gamma, weights):
+    return((np.sum(weights*np.abs(Y.T-W@H)))/len(Y))
+
+def sp_objective(H):
+    return 1-np.sum(H**2)/H.shape[1]
+
+def size_objective(H):
+    N = H.shape[1]
+    P = H.shape[0]
+    #print(N,P,np.sum(H, axis=1))
+    return P/(N-N/P)**2 * np.sum((np.sum(H, axis=1)-N/P)**2)
+
+def size2_objective(H):
+    N = H.shape[1]
+    P = H.shape[0]
+    #print(N,P,np.sum(H, axis=1))
+    return 1/(N-N/P)**2 * np.sum((np.sum(H**2, axis=1)-N/P)**2)
 
 def FCLS_onestep(X, W, H, ID_n, gamma):
     L = len(H)
