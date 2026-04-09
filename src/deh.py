@@ -7556,6 +7556,31 @@ class DEH():
             self.train_clustering_steps_at_1_level(data, split_var, scaling_factor=scaling_factor)
             l = self.get_depth()
             
+    def scale_data(self, data):
+        """
+        converts the unscaled data into scaling according to eq. S1 of the hUH paper
+        
+        
+        required for use of the descale_classifiers() function
+        """
+        sorteddata = np.sort(np.sqrt(np.sum(data**2, axis=-1)))
+        scale = np.log(np.sqrt(self.max_nodes))/np.log(sorteddata[-1]/sorteddata[0])
+        if self.verbose:
+            print("epsilon is", scale/4)
+        self.scale_epsilon = scale/4
+        out_data = (data.T/np.sqrt(np.sum(data**2, axis=-1))**(1-self.scale_epsilon)).T
+        return out_data
+    
+    def descale_classifiers(self):
+        """
+        returns the endmember spectra back to the original scaling
+        
+        requires scale_data() to have been run
+        """
+        for node in self.nodes:
+            self.nodes[node].classifier_scaled = np.copy(self.nodes[node].classifier)
+            scaling = np.sum(self.nodes[node].classifier**2)**((1-self.scale_epsilon)/(self.scale_epsilon))
+            self.nodes[node].classifier *= scaling
             
             
             
