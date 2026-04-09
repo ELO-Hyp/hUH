@@ -9,7 +9,8 @@ import numpy as np
 import copy
 
 class DAAA():
-    def __init__(self, n_components=2, initial_regularization=1, time_constant=100, delta=0, epochs=10):
+    def __init__(self, n_components=2, initial_regularization=1, time_constant=100, delta=0, epochs=10,
+                record=False):
         self.n_components = n_components
         self.initial_regularization = initial_regularization
         self.time_constant = time_constant
@@ -21,6 +22,10 @@ class DAAA():
         self.use_weights=False
         self.verbose=True
         self.obj = 'L2'
+        self.record = record
+        if self.record:
+            self.obj_rec = []
+       
         
 
     def init_tiered(self, max_rej=5):
@@ -62,9 +67,26 @@ class DAAA():
         self.W = np.maximum(self.W, 1e-5)
         self.W = (self.W/np.sqrt(np.sum(self.W**2, axis=0)))    
         
+    def append_record(self, data):
+        if self.record:
+            if self.obj=='L2':
+                new_obj = objective(data,self.W,self.H,0,self.weights)
+            elif self.obj=='Sp':
+                new_obj = sp_objective(self.H)
+            elif self.obj=='SpS':
+                new_obj = (sp_objective(self.H) + size_objective(self.H))/2
+            elif self.obj=='L1':
+                new_obj = objectiveL1(data,self.W,self.H,0,self.weights)
+            elif self.obj=='Size':
+                new_obj = (size2_objective(nH))
+            self.obj_rec.append([self.T, new_obj])
+    
     def one_iterate(self, data):
         self.update_W_AA(data)
         self.update_all_abundances_BCD(data)
+        
+        self.append_record(data)
+        
         self.iteration += 1
         self.T = self.initial_regularization*np.exp(-self.iteration / self.time_constant)
         if self.cos:
@@ -134,7 +156,10 @@ class DAAA():
                 print(objective(data.T, self.W, self.H, self.T, self.weights))
             
     def save(self, name):
-        np.savez(name, H=self.H, W=self.W)
+        if self.record:
+            np.savez(name, H=self.H, W=self.W, R=np.array(self.obj_rec))
+        else:
+            np.savez(name, H=self.H, W=self.W)
         
         
     def update_all_abundances_BCD(self, data):
@@ -162,6 +187,9 @@ class DAAA():
                     if self.rejections > self.max_rej:
                         self.tier+=1
                         self.rejections=0
+                        
+                        
+                self.append_record(Y)
             self.T = self.initial_regularization*np.exp(-self.iteration / self.time_constant)
             print("T is now ", self.T)
             

@@ -394,7 +394,7 @@ class DEH():
             init_nodes = self.nodes
         else:
             init_nodes = [n for n in self.nodes if len(n)==level]
-        test1 = svm.LinearSVC(max_iter=10000, dual=True)#, C=10**10)
+        test1 = svm.LinearSVC(max_iter=1000000, dual=True, C=10**5)
         for n in init_nodes:
             if n+'1' in self.nodes:
                 points = flat(self.nodes[n+'0'].origin_pix) + flat(self.nodes[n+'1'].origin_pix)
