@@ -2740,47 +2740,6 @@ class DEH():
         self.update_from_level_S_V(data, beta=beta, alg=alg, n_update_points=n_update_points, attenuation=attenuation,
                                   levels=levels, occs=occs, split_var=split_var)
 
-        #if alg=='complex':
-        #    self.populate_fns( data, target='S', alg=alg)
-        #for n in self.nodes:
-        #    self.nodes[n].S_update = np.zeros(len(self.nodes[n].classifier),
-        #                                      dtype=np.float32)
-
-        #if max_level == -1:
-        #    max_level = self.get_depth()
-        #if alg=='complex':
-        #    for i in range(max_level-2):
-        #        self.update_from_level_S_I(i+2, data, scaling_factor=scaling_factor)
-        
-        
-        
-        #if n_update_points > 0:
-        #    update_pix = np.random.choice(len(data), n_update_points)
-        #    for i in range(max_level-1):
-        #        self.update_from_level_S_II(i+1, data[update_pix], scaling_factor=scaling_factor)
-        #else:
-        #    for i in range(max_level-1):
-        #        self.update_from_level_S_II(i+1, data, scaling_factor=scaling_factor)
-         
-        #scaling_factor = np.mean(1/self.weights)
-        #long_nodes = [n for n in self.nodes if len(n) >= up_level]
-        #for n in long_nodes:
-        #    try:
-        #        step = (beta)*scaling_factor*self.nodes[n].S_update
-        #        step_mag = np.sum(np.abs(step))
-                #print(step_mag)
-        #        if step_mag / np.sum(self.nodes[n].classifier) > max_step_r:
-        #            step = step / step_mag * max_step_r
-        #        self.nodes[n].classifier += step
-        #    except AttributeError:
-        #        pass
-
-        #for n in self.nodes:
-        #    try:
-        #        self.nodes[n].classifier[self.nodes[n].classifier<0]=0
-        #        del self.nodes[n].fns
-        #    except AttributeError:
-        #        pass
             
     def lowest_level_S(self, data, beta=0.1, alg='complex', n_update_points=0, occs=()):
         d = self.get_depth()
@@ -3305,7 +3264,55 @@ class DEH():
             obj_record.append([o_scores[-1],1.5, self.get_depth(), o_scores[0], o_scores[1]])
             self.hprint(new_obj,o_scores)
           
+    def equiliberate_node_and_children(self, data, node, n_update_points=0, n_runs=10, split_var=(),
+                                      only_spectra=False):
+        if len(split_var)>0:
+            sdata = split_var
+        else:
+            sdata = data
+            
+        self.simple_predict(sdata)
+        prob_map = {}
+        for n in [node, node+'0', node+'1']:
+            if len(n) >= 0:
+                prob_map[n] = self.nodes[n].map
+        rel_data = prob_map[n] > 0
+        print(prob_map.keys())
+
+        for i in range(n_runs):
+            if only_spectra:
+                self.update_from_level_S_V(data, beta = 0, alg='simple', n_update_points=n_update_points,
+                                       levels=(-1,), occs=prob_map, split_var=sdata,
+                                       node_list =[node+'0', node+'1'])
+            else:
+                self.update_from_level_S_V(data, beta = 0, alg='simple', n_update_points=n_update_points,
+                                       levels=(-1,), occs=prob_map, split_var=sdata,
+                                       node_list =[node+'0', node+'1'])
+                self.one_step_cyclic(data, scaling_factor=self.scaling_factor, n_update_points=n_update_points,
+                                     lowest=False, prob_map=prob_map,
+                                     split_var=sdata, both=True, only_ends=self.only_ends, levels=(), node=[node])
+                
+                lmda_O = classify_from_partitionI(sdata[rel_data], self.nodes[node].splitter[0],
+                                        self.nodes[node].splitter[1])
+                lmda = classify_from_partitionII(lmda_O)
+                lmda_full = np.zeros(data.shape[0])
+                lmda_full[rel_data] = lmda
+                prob_map[node+'1'][:] = prob_map[node]*lmda_full
+                lmda_full[rel_data] = 1-lmda
+                prob_map[node+'0'][:] = prob_map[node]*lmda_full
+
+
+    
+    def one_node_grad_update(self, data, node, n_update_points=0):
+        if n_update_points > 0:
+            update_pix = np.random.choice(len(data), n_update_points)
+            self.node_grad(node, data[update_pix], var='W')
+            self.node_grad(node, data[update_pix], var='h')
+        else:
+            self.node_grad(node, data, var='W')
+            self.node_grad(node, data, var='h')
         
+    
     def one_step_cyclic_ll(self, data, n_update_points=0):
         nodes = list(self.nodes.keys())
         depth = self.get_depth()
@@ -4680,6 +4687,7 @@ class DEH():
         #node should be input as a single 
         if len(split_var)==0:
             split_var = data
+            
         if len(node)==0:
             nodes = list(self.nodes.keys())
         else:
@@ -6252,6 +6260,237 @@ class DEH():
         
         
         return obj_record
+
+    def gentle_exhaustive_grow_network(self, indata, n_update_pts= (0,), sampling_points=(),
+                          n_runs=20, save=False, save_name='default', saturation=(), split_var=(),
+                               scale_spectra=False):
+        
+        
+        if scale_spectra:
+            self.use_norm(False)
+            magnitudes = np.sqrt(np.sum(indata**2, axis=-1))
+            scale = np.log(np.sqrt(self.max_nodes))/np.log(magnitudes.max()/magnitudes.min())
+            self.scale=scale
+            data = (indata.T/magnitudes**(1-self.scale)).T
+            self.scaled=True
+        else:
+            data = indata
+        if len(split_var)==0:
+            split_var = indata
+        assert data.min() >=0, "data must be nonnegative"
+        obj_record=[[0]]
+        self.obj_record = obj_record
+        self.start=time.time()
+        self.n_update_pts = n_update_pts[0]
+        self.training='grow_network_gentle'
+
+        self.parameter_initialization(data)
+        self.wf = lambda x: self.get_full_weights()
+
+        d_norm = self.get_ldata(data)#(data.T/np.sqrt(np.sum(data**2, axis=-1))).T
+        self.sparse_grow_node(d_norm, split_var, '')
+        S=self.simple_predict(split_var)
+        self.display_level(1)
+        print("starting equil")
+        self.equiliberate(data, obj_record=obj_record, n_runs=n_runs, n_pts=n_update_pts[0], epsilon=0,
+                         split_var = split_var)
+        print("equil_done")
+        S=self.simple_predict(split_var)
+        self.display_level(1)
+        e_reg_max = obj_record[-1][0] / (np.sum(S**2, axis=0).mean()-1/len(S))#the factor of 0.1 is to stablize the initialization
+        print(e_reg_max)
+        self.shake(data, n_runs=n_runs, n_pts=n_update_pts[0],
+                    obj_record=obj_record, split_var=split_var)
+        self.use_bsp = False
+        self.display_level(self.get_depth())
+                                
+        keep_growing = True
+        old_nodes = self.copy()
+        nodes_2_check = ['0','1']
+        while keep_growing:
+            endmembers = self.get_base_endnodes()
+            #endmembers = self.get_end_nodes()
+            self.endnode_scores = {}
+            self.endnode_coherences = {}
+            print(nodes_2_check, " = nodes to check")
+            for en in nodes_2_check:
+                try:
+                    
+                    #extract particular nodes
+                    splitter = self.nodes[en].deh.nodes[en].splitter
+                    classifiers = [np.copy(self.nodes[en].deh.nodes[en+'0'].classifier),
+                                   np.copy(self.nodes[en].deh.nodes[en+'1'].classifier)]                    
+                    #transfer base network to nodes
+                    print("retrieved")
+                    self.nodes[en].deh.nodes = self.copy_nodes()
+                    self.nodes[en].deh.simple_predict(split_var)
+                    self.nodes[en].deh.binarize_lmdas()
+                    self.nodes[en].deh.lmda_2_map()
+                    self.nodes[en].deh.sparse_grow_node(d_norm, split_var, en)
+                    self.nodes[en].deh.init_node_split(en,
+                                                        data,
+                                                        n_runs,
+                                                        n_pts=n_update_pts[0],
+                                                      split_var=split_var)
+                    #self.nodes[en].deh.nodes[en].splitter = (0*splitter[0], 0)
+                    #self.nodes[en].deh.nodes[en+'0'].classifier = classifiers[0]
+                    #self.nodes[en].deh.nodes[en+'1'].classifier = classifiers[1]
+                    #equiliberate
+                    #self.nodes[en].deh.equiliberate(ADD PARAMS)
+                except AttributeError:
+                    self.nodes[en].deh = self.copy()
+                    
+                    self.nodes[en].deh.simple_predict(split_var)
+                    print("starting to grow", en)
+                    self.nodes[en].deh.sparse_grow_node(d_norm, split_var, en)
+                    self.nodes[en].deh.init_node_split(en,
+                                                        data,
+                                                        n_runs,
+                                                        n_pts=n_update_pts[0],
+                                                      split_var=split_var)
+                    #self.nodes[en].deh.nodes[en].splitter = (0*self.nodes[en].deh.nodes[en[:-1]].splitter[0],0) 
+                    self.nodes[en].deh.use_bsp = True
+                
+                try:
+                    self.nodes[en].deh.simple_predict(split_var)
+                    self.nodes[en].deh.display_level(self.nodes[en].deh.get_depth())
+                    
+                    denom = 4 # could become a hyperparameter
+                    self.binarize_lmdas()
+                    self.lmda_2_map()
+                    abundances = self.nodes[en].deh.nodes[en].map
+
+                    #self.nodes[en].deh.aa=False
+
+                    self.nodes[en].deh.only_ends=True
+                    
+                    rel = abundances > 0.5 #binarized, so exact # doesn't matter, just less than one, more than 0
+                    self.nodes[en].deh.equiliberate_node_and_children(data[rel], en,
+                                                                      n_update_points=n_update_pts[0],
+                                                                      n_runs=n_runs,
+                                                                      split_var=split_var[rel],
+                                                                      only_spectra=True)
+
+                    self.nodes[en].deh.equiliberate_node_and_children(data[rel], en,
+                                                                      n_update_points=n_update_pts[0],
+                                                                      n_runs=n_runs,
+                                                                      split_var=split_var[rel])
+                    
+                    #for ii in range(1,denom):
+                    
+                    #
+                    #self.nodes[en].deh.update_spectra=True
+                    self.nodes[en].deh.simple_predict(split_var)
+                    self.nodes[en].deh.display_level(self.nodes[en].deh.get_depth())
+
+                    
+                    self.nodes[en].deh.equiliberate(data, 
+                                                    obj_record=obj_record,
+                                                    n_runs=n_runs,
+                                                    n_pts=n_update_pts[0],
+                                                    epsilon=0, split_var=split_var)
+                    
+                    self.nodes[en].deh.shake(data, n_runs=n_runs, n_pts=n_update_pts[0],
+                                             obj_record=obj_record, split_var=split_var)
+                    self.nodes[en].deh.only_ends=False
+
+                    self.nodes[en].deh.equiliberate(data, 
+                                                    obj_record=obj_record,
+                                                    n_runs=n_runs,
+                                                    n_pts=n_update_pts[0],
+                                                    epsilon=0,
+                                                   split_var = split_var)
+                    
+                    self.nodes[en].deh.shake(data, n_runs=n_runs, n_pts=n_update_pts[0],
+                                             obj_record=obj_record, split_var=split_var)
+                    
+                    self.nodes[en].deh.equiliberate(data, 
+                                                    obj_record=obj_record,
+                                                    n_runs=n_runs,
+                                                    n_pts=n_update_pts[-1],
+                                                    epsilon=0,
+                                                   split_var = split_var)
+                    
+                    self.nodes[en].deh.simple_predict(split_var)
+                    eL = self.nodes[en].deh.remainder_at_level(data,
+                                                                self.nodes[en].deh.get_depth())
+                    w_err = np.sum(np.multiply((eL**2).T, self.full_weights), axis=0).mean()
+                    self.endnode_scores[en] = w_err
+                    self.nodes[en].deh.display_level(self.nodes[en].deh.get_depth())
+                    self.endnode_coherences[en] = self.nodes[en].deh.coherence()
+                    
+                    if self.save_intermediates:
+                        self[en].deh.save(save_name+'_' + en + '_' + str(len(self.get_end_nodes()))+'_OPTION.h5')
+                    
+                    self.nodes[en].deh.clear_maps()
+                except ValueError:
+                    print("Verror")
+                    self.nodes[en].deh.clear_maps()
+                #except IndexError:
+                #    print("Ierror")
+                #    self.nodes[en].deh.clear_maps()
+
+                    
+            #select network
+            print(self.endnode_scores)
+            self.hprint(self.endnode_coherences)
+            valid_endnode_scores = self.check_splitting_criteria()
+            if len(valid_endnode_scores)>0:
+                #self.save(save_name+'_' +'eq' + '_' + str(len(self.get_end_nodes()))+'.h5')
+                to_accept = min(valid_endnode_scores, key=valid_endnode_scores.get)
+                print("to-accept is ", to_accept)
+                # switch network to main
+                # self.nodes = self.nodes[to_accept].deh.copy_nodes()#extract particular nodes
+                classifiers = [self.nodes[to_accept].deh.nodes[to_accept+'0'].classifier,
+                               self.nodes[to_accept].deh.nodes[to_accept+'1'].classifier]
+                splitter = self.nodes[to_accept].deh.nodes[to_accept].splitter
+                self.save(save_name+'_' +'eq' + '_' + str(len(self.get_end_nodes()))+'_SMOOTH.h5')
+                #print(self.nodes)
+                #transfer base network to nodes
+                self.sparse_grow_node(d_norm, split_var, to_accept)
+                #print(self.nodes)
+                self.nodes[to_accept].splitter = splitter
+                self.nodes[to_accept+'0'].classifier = classifiers[0]
+                self.nodes[to_accept+'1'].classifier = classifiers[1]
+                for n in self.nodes:
+                    self.nodes[n].classifier = self.nodes[to_accept].deh.nodes[n].classifier
+                    if n+'1' in self.nodes:
+                        self.nodes[n].splitter = self.nodes[to_accept].deh.nodes[n].splitter
+                del self.nodes[to_accept].deh
+            else:
+                to_accept = '-1'
+            #print(self.nodes)
+
+            self.shake(data, n_runs=n_runs, n_pts=n_update_pts[0],
+                        obj_record=obj_record, split_var=split_var)
+            #check_nodes with pure pixels
+            self.simple_predict(split_var)
+            nodes_2_check = []
+            self.binarize_lmdas()
+            self.lmda_2_map()
+            for en in self.get_base_endnodes():
+                if np.sum(self.nodes[en].map==1) > 2:
+                    nodes_2_check.append(en)
+            
+            #evaluate stopping criteria
+            
+            if to_accept=='-1':
+                keep_growing = False
+            elif len(self.get_end_nodes())>=self.max_nodes:
+                keep_growing = False
+            elif len(nodes_2_check)==0:
+                keep_growing = False
+
+            
+            if keep_growing:
+                old_nodes = self.copy()
+                endmembers = self.get_base_endnodes()
+                self.save(save_name+'_' +'eq' + '_' + str(len(self.get_end_nodes()))+'_SPARSE.h5')
+                #for en in endmembers  
+        
+        
+        
+        return obj_record
     
     
     def init_node_split(self, node, data, n_runs, n_pts, split_var=()):
@@ -6264,6 +6503,7 @@ class DEH():
             print("starting split with points ", data_points.sum())
 
             node_trainer = self.copy()
+            node_trainer.aa=False
             node_trainer.full_weights = self.full_weights[data_points]
             node_trainer.nodes = {}
             for n in self.nodes:
@@ -6292,6 +6532,7 @@ class DEH():
                 max_per_endm = S.max(axis=1)
                 if max_per_endm.min()==1:
                     go_on=False
+                print(len(max_per_endm), "max_per:endm")
                 if len(max_per_endm) > 2:
                     go_on=False
 
