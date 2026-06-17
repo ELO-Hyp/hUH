@@ -166,3 +166,14 @@ cython_debug/
 *.png
 *.xlsx
 *.npz
+*.bin
+*.json
+src/lsm*
+*.txt
+*.ipynb
+!2026_02_04_DAAA_DAPPA_SAPPA_example.ipynb
+*.zip
+*.mat
+*.npy
+*.pdf
+*.svg
