@@ -160,6 +160,14 @@ class DEH():
         
         #self.sf = 253
         #return self
+
+    def summary_log(self, output):
+        if self.save==True:
+            with open(self.save_name + '_scores.txt','a+') as file:
+                file.write(output)
+        else:
+            pass
+            
         
     def copy(self):
         '''
@@ -3265,7 +3273,7 @@ class DEH():
             self.hprint(new_obj,o_scores)
           
     def equiliberate_node_and_children(self, data, node, n_update_points=0, n_runs=10, split_var=(),
-                                      only_spectra=False):
+                                      spectral=True, spatial=True):
         if len(split_var)>0:
             sdata = split_var
         else:
@@ -3277,21 +3285,18 @@ class DEH():
             if len(n) >= 0:
                 prob_map[n] = self.nodes[n].map
         rel_data = prob_map[n] > 0
-        print(prob_map.keys())
+        #print(prob_map.keys())
 
         for i in range(n_runs):
-            if only_spectra:
+            if spectral:
                 self.update_from_level_S_V(data, beta = 0, alg='simple', n_update_points=n_update_points,
                                        levels=(-1,), occs=prob_map, split_var=sdata,
                                        node_list =[node+'0', node+'1'])
-            else:
-                self.update_from_level_S_V(data, beta = 0, alg='simple', n_update_points=n_update_points,
-                                       levels=(-1,), occs=prob_map, split_var=sdata,
-                                       node_list =[node+'0', node+'1'])
+            if spatial:
                 self.one_step_cyclic(data, scaling_factor=self.scaling_factor, n_update_points=n_update_points,
                                      lowest=False, prob_map=prob_map,
                                      split_var=sdata, both=True, only_ends=self.only_ends, levels=(), node=[node])
-                
+            if (spatial and spectral):    
                 lmda_O = classify_from_partitionI(sdata[rel_data], self.nodes[node].splitter[0],
                                         self.nodes[node].splitter[1])
                 lmda = classify_from_partitionII(lmda_O)
@@ -6354,7 +6359,17 @@ class DEH():
                 try:
                     self.nodes[en].deh.simple_predict(split_var)
                     self.nodes[en].deh.display_level(self.nodes[en].deh.get_depth())
-                    
+
+                    self.nodes[en].deh.only_ends=True
+                    for i in range(len(en)):
+                        self.nodes[en].deh.equiliberate_node_and_children(data, en[:i],
+                                                                      n_update_points=n_update_pts[0],
+                                                                      n_runs=n_runs,
+                                                                      split_var=split_var,
+                                                                      spectral=False, spatial=True)
+
+                    self.nodes[en].deh.simple_predict(split_var)
+                    self.nodes[en].deh.display_level(self.nodes[en].deh.get_depth())
                     denom = 4 # could become a hyperparameter
                     self.binarize_lmdas()
                     self.lmda_2_map()
@@ -6362,14 +6377,14 @@ class DEH():
 
                     #self.nodes[en].deh.aa=False
 
-                    self.nodes[en].deh.only_ends=True
+                    
                     
                     rel = abundances > 0.5 #binarized, so exact # doesn't matter, just less than one, more than 0
                     self.nodes[en].deh.equiliberate_node_and_children(data[rel], en,
                                                                       n_update_points=n_update_pts[0],
                                                                       n_runs=n_runs,
                                                                       split_var=split_var[rel],
-                                                                      only_spectra=True)
+                                                                      spectral=True, spatial=False)
 
                     self.nodes[en].deh.equiliberate_node_and_children(data[rel], en,
                                                                       n_update_points=n_update_pts[0],
@@ -6421,6 +6436,7 @@ class DEH():
                     
                     if self.save_intermediates:
                         self[en].deh.save(save_name+'_' + en + '_' + str(len(self.get_end_nodes()))+'_OPTION.h5')
+                        
                     
                     self.nodes[en].deh.clear_maps()
                 except ValueError:
@@ -6433,6 +6449,7 @@ class DEH():
                     
             #select network
             print(self.endnode_scores)
+            self.summary_log(self.endnode_scores)
             self.hprint(self.endnode_coherences)
             valid_endnode_scores = self.check_splitting_criteria()
             if len(valid_endnode_scores)>0:
@@ -6535,6 +6552,16 @@ class DEH():
                 print(len(max_per_endm), "max_per:endm")
                 if len(max_per_endm) > 2:
                     go_on=False
+
+
+            if self.aa:
+                node_trainer.aa = True
+                node_trainer.equiliberate(data[data_points], 
+                                          obj_record=[0],
+                                          n_runs=n_runs,
+                                          n_pts=n_pts,
+                                          epsilon=0,
+                                          split_var=split_var[data_points])
 
             for n in node_trainer.nodes:
                 self.nodes[node + n] = node_trainer.nodes[n]
