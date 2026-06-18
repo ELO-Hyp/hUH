@@ -162,7 +162,7 @@ class DEH():
         #return self
 
     def summary_log(self, output):
-        if self.save==True:
+        if self.save_output==True:
             with open(self.save_name + '_scores.txt','a+') as file:
                 file.write(output)
         else:
@@ -6267,9 +6267,11 @@ class DEH():
         return obj_record
 
     def gentle_exhaustive_grow_network(self, indata, n_update_pts= (0,), sampling_points=(),
-                          n_runs=20, save=False, save_name='default', saturation=(), split_var=(),
+                          n_runs=20, save=False, save_name='', saturation=(), split_var=(),
                                scale_spectra=False):
         
+        if len(save_name)==0:
+            save_name = self.save_name
         
         if scale_spectra:
             self.use_norm(False)
@@ -6435,16 +6437,16 @@ class DEH():
                     self.endnode_coherences[en] = self.nodes[en].deh.coherence()
                     
                     if self.save_intermediates:
-                        self[en].deh.save(save_name+'_' + en + '_' + str(len(self.get_end_nodes()))+'_OPTION.h5')
+                        self.nodes[en].deh.save(save_name+'_' + en + '_' + str(len(self.get_end_nodes()))+'_OPTION.h5')
                         
                     
                     self.nodes[en].deh.clear_maps()
                 except ValueError:
                     print("Verror")
                     self.nodes[en].deh.clear_maps()
-                #except IndexError:
-                #    print("Ierror")
-                #    self.nodes[en].deh.clear_maps()
+                except IndexError:
+                    print("Ierror")
+                    self.nodes[en].deh.clear_maps()
 
                     
             #select network
@@ -6506,7 +6508,8 @@ class DEH():
                 #for en in endmembers  
         
         
-        
+
+        self.save(save_name+'_' +'eq' + '_' + str(len(self.get_end_nodes()))+'_COMPLETE.h5')
         return obj_record
     
     
