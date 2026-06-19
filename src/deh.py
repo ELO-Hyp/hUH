@@ -199,6 +199,10 @@ class DEH():
         copied.full_weights = self.full_weights
         copied.verbose = self.verbose
         copied.scaling_factor = self.scaling_factor
+        try:
+            copied.partitions = self.partitions
+        except AttributeError:
+            self.hprint("no partitions to copy")
         if self.log_filename:
             copied.logger = self.logger
             copied.handler = self.handler
@@ -5512,6 +5516,84 @@ class DEH():
         return 1-(S[:,not_sat]==1).sum() / not_sat.sum()
     
     
+    def mpp_by_level(self):
+        '''
+        Note that this version requires simple predict to already be run
+        '''
+        depth = self.get_depth()
+        mpps = []
+        not_sat = self.weights > 0
+        for i in range(1,depth+1):
+            S = []
+            for n in self.nodes:
+                if len(n)==i:
+                    S.append(self.nodes[n].map)
+            S = np.array(S)
+            l_mpp = 1-(S[:,not_sat]==1).sum() / not_sat.sum()
+            mpps.append(l_mpp)
+        integrated_mpp = 0 
+        normalizer = 0
+        for i in range(depth):
+            integrated_mpp += mpps[i]/self.scaling_factor**(i+1)
+            normalizer += 1/self.scaling_factor**(i+1)
+        integrated_mpp /= normalizer
+            
+        return (mpps, integrated_mpp)
+    
+    
+    def sparseness_by_level(self):
+        '''
+        Note that this version requires simple predict to already be run
+        '''
+        depth = self.get_depth()
+        sparsenesses = []
+        not_sat = self.weights > 0
+        for i in range(1,depth+1):
+            S = []
+            for n in self.nodes:
+                if len(n)==i:
+                    S.append(self.nodes[n].map)
+            S = np.array(S)
+            l_sparseness = sparseness(S)
+            sparsenesses.append(l_sparseness)
+        integrated_sparseness = 0 
+        normalizer = 0
+        for i in range(depth):
+            integrated_sparseness += sparsenesses[i]/self.scaling_factor**(i+1)
+            normalizer += 1/self.scaling_factor**(i+1)
+            
+        return (sparsenesses, integrated_sparseness)
+    
+    
+    def localization_of_lowest_level(self):
+        '''
+        Note that this version requires simple predict to already be run
+        '''
+        self.binarize_lmdas()
+        self.lmda_2_map()
+        depth = self.get_depth()
+        try:
+            parts = self.partitions
+            locs = []
+            for n in self.nodes:
+                if len(n)==depth:
+                    S = self.nodes[n].map
+                    whole_S = np.sum(S)
+                    max_part = parts.max()
+                    part_S =[]
+                    for i in range(max_part+1):
+                        part_S.append( np.sum(S[parts.flatten()==i]))
+                    max_S = np.max(np.array(part_S))
+                    locs.append(max_S/whole_S)
+            return np.max(np.array(locs))
+                        
+        except AttributeError:
+            print("localization requires partitions")
+            return -1
+                
+                
+           
+    
     def node_mpp(self, node):
         #self.simple_predict(image) - assume this is already run
         pix_in = (self.nodes[node].map>0).sum()
@@ -6176,6 +6258,7 @@ class DEH():
             valid_endnode_scores = self.check_splitting_criteria()
             if len(valid_endnode_scores)>0:
                 #self.save(save_name+'_' +'eq' + '_' + str(len(self.get_end_nodes()))+'.h5')
+                
                 to_accept = min(valid_endnode_scores, key=valid_endnode_scores.get)
                 print("to-accept is ", to_accept)
                 # switch network to main
@@ -6266,6 +6349,7 @@ class DEH():
         
         return obj_record
 
+    
     def gentle_exhaustive_grow_network(self, indata, n_update_pts= (0,), sampling_points=(),
                           n_runs=20, save=False, save_name='', saturation=(), split_var=(),
                                scale_spectra=False):
@@ -6319,6 +6403,9 @@ class DEH():
             #endmembers = self.get_end_nodes()
             self.endnode_scores = {}
             self.endnode_coherences = {}
+            self.endnode_mpps = {}
+            self.endnode_sparsenesses = {}
+            self.endnode_localization = {}
             print(nodes_2_check, " = nodes to check")
             for en in nodes_2_check:
                 try:
@@ -6437,6 +6524,9 @@ class DEH():
                     self.endnode_scores[en] = w_err
                     self.nodes[en].deh.display_level(self.nodes[en].deh.get_depth())
                     self.endnode_coherences[en] = self.nodes[en].deh.coherence()
+                    self.endnode_mpps[en] = self.nodes[en].deh.mpp_by_level()
+                    self.endnode_sparsenesses[en] = self.nodes[en].deh.sparseness_by_level()
+                    self.endnode_localization[en] = self.nodes[en].deh.localization_of_lowest_level()
                     
                     if self.save_intermediates:
                         self.nodes[en].deh.save(save_name+'_' + en + '_' + str(len(self.get_end_nodes()))+'_OPTION.h5')
@@ -6453,12 +6543,27 @@ class DEH():
                     
             #select network
             print(self.endnode_scores)
+            print('mpps', self.endnode_mpps)
+            print('sp', self.endnode_sparsenesses)
+            print('loc', self.endnode_localization)
             self.summary_log(self.endnode_scores)
             self.hprint(self.endnode_coherences)
             valid_endnode_scores = self.check_splitting_criteria()
             if len(valid_endnode_scores)>0:
                 #self.save(save_name+'_' +'eq' + '_' + str(len(self.get_end_nodes()))+'.h5')
-                to_accept = min(valid_endnode_scores, key=valid_endnode_scores.get)
+                #if partitions are present, check localization
+                #localization is always generated, it is -1 if there are no partitions
+                L = len(self.endnode_localization)
+                valid_nodes = [k for k in self.endnode_localization \
+                               if self.endnode_localization[k]< 0.95] #tolerance should become a hyperparameter
+                print("localization valid nodes are ", valid_nodes)
+                valid_scores = [self.endnode_scores[s] for s in valid_nodes]
+                cutoff = np.sort(valid_scores)[L//2]
+                better_half_mpps = {s:self.endnode_mpps[s][1] for s in valid_nodes \
+                                      if self.endnode_scores[s] <= cutoff}
+                print("mpps satisfying better half scores are", better_half_mpps)
+                to_accept = min(better_half_mpps, key=better_half_mpps.get)
+                #to_accept = min(valid_endnode_scores, key=valid_endnode_scores.get)
                 print("to-accept is ", to_accept)
                 # switch network to main
                 # self.nodes = self.nodes[to_accept].deh.copy_nodes()#extract particular nodes
@@ -6865,11 +6970,6 @@ class DEH():
         '''
         
         return self.endnode_scores
-        #for loop until endmember growth stop criteria is met
-        #generate extended networks for each endmember (sparsify + split + train)
-    	#for each endmember in network - run stablization on extended network - calculate score of each network - store score in score dictionary
-    	# select network with lowest score that meets growth criteria - save as base network - delete extension from endnode
-    	#x## for 2 new endmembers - make new extended networks - in each extended network, sparsify, split, and stablize the new extmembers
     
                                 
     def split_node(self, node, data):
@@ -8433,9 +8533,16 @@ def svm_from_classifiers(image, classifier0, classifier1):
 
 
 def sparsity(S):
+    '''
+    should be replaced by function called sparseness, see below
+    '''
     n = len(S)
     sparsity = (np.sqrt(n)-np.sum(S,axis=0)/np.sqrt(np.sum(S**2,axis=0)))/(np.sqrt(n)-1)
     return sparsity.mean()
+
+
+def sparseness(S):
+    return sparsity(S)
 
 
 def classifiers_2_svm(classifier0, classifier1):
