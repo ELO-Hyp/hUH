@@ -6406,6 +6406,7 @@ class DEH():
             self.endnode_mpps = {}
             self.endnode_sparsenesses = {}
             self.endnode_localization = {}
+            self.endnode_pct2 = {}
             print(nodes_2_check, " = nodes to check")
             for en in nodes_2_check:
                 try:
@@ -6517,7 +6518,7 @@ class DEH():
                                                     epsilon=0,
                                                    split_var = split_var)
                     
-                    self.nodes[en].deh.simple_predict(split_var)
+                    S = self.nodes[en].deh.simple_predict(split_var)
                     eL = self.nodes[en].deh.remainder_at_level(data,
                                                                 self.nodes[en].deh.get_depth())
                     w_err = np.sum(np.multiply((eL**2).T, self.full_weights), axis=0).mean()
@@ -6527,6 +6528,7 @@ class DEH():
                     self.endnode_mpps[en] = self.nodes[en].deh.mpp_by_level()
                     self.endnode_sparsenesses[en] = self.nodes[en].deh.sparseness_by_level()
                     self.endnode_localization[en] = self.nodes[en].deh.localization_of_lowest_level()
+                    self.endnode_pct2[en] = twoen_percent(S)
                     
                     if self.save_intermediates:
                         self.nodes[en].deh.save(save_name+'_' + en + '_' + str(len(self.get_end_nodes()))+'_OPTION.h5')
@@ -6546,7 +6548,13 @@ class DEH():
             print('mpps', self.endnode_mpps)
             print('sp', self.endnode_sparsenesses)
             print('loc', self.endnode_localization)
+            print('2ness', self.endnode_pct2)
+            self.summary_log("Number of endnodes: " + str(len(self.endnode_scores)))
             self.summary_log(self.endnode_scores)
+            self.summary_log(self.endnode_mpps)
+            self.summary_log(self.endnode_sparsenesses)
+            self.summary_log(self.endnode_localization)
+            self.summary_log(self.endnode_pct2)
             self.hprint(self.endnode_coherences)
             valid_endnode_scores = self.check_splitting_criteria()
             if len(valid_endnode_scores)>0:
@@ -8830,3 +8838,8 @@ def calc_scores(gt_map, gt_e, S, E, plot_size, show=False):
 
 
     return scoreD
+
+def twoen_percent(S):
+    Sg0 = S > 0
+    S_twoen = np.sum(np.sum(Sg0, axis=0) < 3)
+    return S_twoen/S.shape[1]
