@@ -2233,8 +2233,10 @@ class DEH():
                     if i[:len(original)]==original:
                         count += 1
             self.hprint(count)
-
-            fig, ax = plt.subplots(1, count, figsize=(8,2*count))
+            
+            rows = (count // 6) + 1
+            fig, ax = plt.subplots(rows, np.minimum(count,5), figsize=(8,2*np.minimum(count,5)))
+            ax = ax.flatten()
             for i, a in enumerate(ax):
                 a.set_xticks([])
                 a.set_yticks([])
@@ -2245,7 +2247,7 @@ class DEH():
                     if i[:len(original)]==original:
                         ax[counter].imshow(np.rot90(self.nodes[i].map.reshape(self.plot_size)),
                                            aspect=self.plot_aspect, vmin=0, vmax=1, interpolation='nearest')
-                        ax[counter].set_ylabel(self.nodes[i].map.astype(np.float32).sum())
+                        ax[counter].set_xlabel(self.nodes[i].map.astype(np.float32).sum())
                         ax[counter].set_title(i + " {:.2f}".format(self.nodes[i].map.max()))
                         counter += 1
             plt.tight_layout()
@@ -5542,30 +5544,38 @@ class DEH():
         return (mpps, integrated_mpp)
 
 
+    def get_nodes_2_sum(self):
+        nodes_2_sum = []
+        for n in self.nodes:
+            if len(n)>0:
+                if (n[:-1]+'1') in self.nodes:
+                    nodes_2_sum.append(n)
+
+        return nodes_2_sum
+    
     def ipp_by_level(self):
         '''
         Note that this version requires simple predict to already be run
         ipp = interpretable pixel proportion
         '''
+        margin = 0.25 # should become a hyperparameter
         depth = self.get_depth()
         ipps = []
+        ip_unnormed = []
         not_sat = self.weights > 0
-        for i in range(1,depth+1):
-            S = []
-            for n in self.nodes:
-                if len(n)==i:
-                    S.append(self.nodes[n].map)
-            S = np.array(S)
-            l_ipp = (S[:,not_sat]>0.5).sum() / not_sat.sum()
-            ipps.append(l_ipp)
-        integrated_ipp = 0 
-        normalizer = 0
-        for i in range(depth):
-            integrated_ipp += ipps[i]
-            normalizer += 1
-        integrated_ipp /= normalizer
+        nodes_2_sum = self.get_nodes_2_sum()
+        for n in nodes_2_sum:
+            l_ip = (self.nodes[n].map>(0.5+margin)).sum()
+            ip_unnormed.append(l_ip)
+            #ipps.append(l_ip/len(self.nodes[n].map))
+        #integrated_ipp = 0 
+        #normalizer = 0
+        #f#or i in range(depth):
+        #    integrated_ipp += ipps[i]
+        #    normalizer += 1
+        #integrated_ipp /= normalizer
             
-        return (ipps, integrated_ipp)
+        return (ipps, np.sum(ip_unnormed)/(len(nodes_2_sum)*not_sat.sum()))
     
     
     def sparseness_by_level(self):
@@ -6636,12 +6646,21 @@ class DEH():
                 #                      if self.endnode_scores[s] <= cutoff}
                 #better_half_ipps = {s:self.endnode_ipps[s][1] for s in valid_nodes \
                 #                      if self.endnode_scores[s] <= cutoff}
-                better_half_ipps = {s:self.endnode_ipps[s][0][-1] for s in valid_nodes \
-                                      if self.endnode_scores[s] <= cutoff}
-                print("ipps satisfying better half scores are", better_half_ipps)
-                to_accept = max(better_half_ipps, key=better_half_ipps.get)
+                #if self.get_depth() > 1:
+                #    lowest_common_level = np.min([len(s) for s in valid_nodes])
+                #    better_half_ipps = {s:self.endnode_ipps[s][0][lowest_common_level] for s in valid_nodes \
+                #                          if self.endnode_scores[s] <= cutoff}
+                #    print("ipps satisfying better half scores are", better_half_ipps)
+                #    to_accept = max(better_half_ipps, key=better_half_ipps.get)
+                #else:
+                #    mpps = {s:self.endnode_mpps[s][1] for s in valid_nodes}
+                #    to_accept = min(mpps, key=mpps.get)
                 #to_accept = min(valid_endnode_scores, key=valid_endnode_scores.get)
                 #to_accept = min(self.endnode_mpps, key=self.endnode_mpps.get)
+                better_half_ipps = {s:self.endnode_ipps[s][-1] for s in valid_nodes \
+                                          if self.endnode_scores[s] <= cutoff}
+                print("ipps satisfying better half scores are", better_half_ipps)
+                to_accept = max(better_half_ipps, key=better_half_ipps.get)
                 print("to-accept is ", to_accept)
                 self.summary_log("to-accept is " + str(to_accept))
                 # switch network to main
