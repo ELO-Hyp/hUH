@@ -2234,7 +2234,7 @@ class DEH():
                         count += 1
             self.hprint(count)
 
-            fig, ax = plt.subplots(count, figsize=(8,2*count))
+            fig, ax = plt.subplots(1, count, figsize=(8,2*count))
             for i, a in enumerate(ax):
                 a.set_xticks([])
                 a.set_yticks([])
@@ -2248,6 +2248,7 @@ class DEH():
                         ax[counter].set_ylabel(self.nodes[i].map.astype(np.float32).sum())
                         ax[counter].set_title(i + " {:.2f}".format(self.nodes[i].map.max()))
                         counter += 1
+            plt.tight_layout()
             plt.show()
 
     
@@ -5534,11 +5535,37 @@ class DEH():
         integrated_mpp = 0 
         normalizer = 0
         for i in range(depth):
-            integrated_mpp += mpps[i]/self.scaling_factor**(i+1)
-            normalizer += 1/self.scaling_factor**(i+1)
+            integrated_mpp += mpps[i]#/self.scaling_factor**(i+1)
+            normalizer += 1#/self.scaling_factor**(i+1)
         integrated_mpp /= normalizer
             
         return (mpps, integrated_mpp)
+
+
+    def ipp_by_level(self):
+        '''
+        Note that this version requires simple predict to already be run
+        ipp = interpretable pixel proportion
+        '''
+        depth = self.get_depth()
+        ipps = []
+        not_sat = self.weights > 0
+        for i in range(1,depth+1):
+            S = []
+            for n in self.nodes:
+                if len(n)==i:
+                    S.append(self.nodes[n].map)
+            S = np.array(S)
+            l_ipp = (S[:,not_sat]>0.5).sum() / not_sat.sum()
+            ipps.append(l_ipp)
+        integrated_ipp = 0 
+        normalizer = 0
+        for i in range(depth):
+            integrated_ipp += ipps[i]
+            normalizer += 1
+        integrated_ipp /= normalizer
+            
+        return (ipps, integrated_ipp)
     
     
     def sparseness_by_level(self):
@@ -5563,7 +5590,32 @@ class DEH():
             normalizer += 1/self.scaling_factor**(i+1)
             
         return (sparsenesses, integrated_sparseness)
-    
+
+        
+    def sparsity_by_level(self):
+        '''
+        Note that this version requires simple predict to already be run
+        '''
+        depth = self.get_depth()
+        sparsities = []
+        not_sat = self.weights > 0
+        for i in range(1,depth+1):
+            S = []
+            for n in self.nodes:
+                if len(n)==i:
+                    S.append(self.nodes[n].map)
+            S = np.array(S)
+            sparsity = ((S==0).sum()+S.shape[1])/(S.shape[0]*S.shape[1])
+            sparsities.append(sparsity)
+        integrated_sparsity = 0 
+        normalizer = 0
+        for i in range(depth):
+            integrated_sparsity += sparsities[i]#/self.scaling_factor**(i+1)
+            normalizer += 1#/self.scaling_factor**(i+1)
+        integrated_sparsity /= normalizer
+            
+        return (sparsities, integrated_sparsity)
+        
     
     def localization_of_lowest_level(self):
         '''
@@ -6404,7 +6456,8 @@ class DEH():
             self.endnode_scores = {}
             self.endnode_coherences = {}
             self.endnode_mpps = {}
-            self.endnode_sparsenesses = {}
+            self.endnode_ipps = {}
+            self.endnode_sparsities = {}
             self.endnode_localization = {}
             self.endnode_pct2 = {}
             print(nodes_2_check, " = nodes to check")
@@ -6519,6 +6572,7 @@ class DEH():
                                                    split_var = split_var)
                     
                     S = self.nodes[en].deh.simple_predict(split_var)
+                    self.nodes[en].deh.display_level(self.nodes[en].deh.get_depth())
                     eL = self.nodes[en].deh.remainder_at_level(data,
                                                                 self.nodes[en].deh.get_depth())
                     w_err = np.sum(np.multiply((eL**2).T, self.full_weights), axis=0).mean()
@@ -6526,7 +6580,9 @@ class DEH():
                     self.nodes[en].deh.display_level(self.nodes[en].deh.get_depth())
                     self.endnode_coherences[en] = self.nodes[en].deh.coherence()
                     self.endnode_mpps[en] = self.nodes[en].deh.mpp_by_level()
-                    self.endnode_sparsenesses[en] = self.nodes[en].deh.sparseness_by_level()
+                    self.endnode_ipps[en] = self.nodes[en].deh.ipp_by_level()
+                    #self.endnode_sparsities[en] = self.nodes[en].deh.sparseness_by_level()
+                    self.endnode_sparsities[en] = self.nodes[en].deh.sparsity_by_level()
                     self.endnode_localization[en] = self.nodes[en].deh.localization_of_lowest_level()
                     self.endnode_pct2[en] = twoen_percent(S)
                     
@@ -6546,15 +6602,17 @@ class DEH():
             #select network
             print(self.endnode_scores)
             print('mpps', self.endnode_mpps)
-            print('sp', self.endnode_sparsenesses)
+            print('sp', self.endnode_sparsities)
             print('loc', self.endnode_localization)
             print('2ness', self.endnode_pct2)
-            self.summary_log("Number of endnodes: " + str(len(self.endnode_scores)))
+            print('ipps', self.endnode_ipps)
+            self.summary_log("Number of endnodes: " + str(len(nodes_2_check)))
             self.summary_log(self.endnode_scores)
             self.summary_log(self.endnode_mpps)
-            self.summary_log(self.endnode_sparsenesses)
+            self.summary_log(self.endnode_sparsities)
             self.summary_log(self.endnode_localization)
             self.summary_log(self.endnode_pct2)
+            self.summary_log(self.endnode_ipps)
             self.hprint(self.endnode_coherences)
             valid_endnode_scores = self.check_splitting_criteria()
             if len(valid_endnode_scores)>0:
@@ -6566,13 +6624,26 @@ class DEH():
                                if self.endnode_localization[k]< 0.95] #tolerance should become a hyperparameter
                 print("localization valid nodes are ", valid_nodes)
                 valid_scores = [self.endnode_scores[s] for s in valid_nodes]
-                cutoff = np.sort(valid_scores)[L//2]
-                better_half_mpps = {s:self.endnode_mpps[s][1] for s in valid_nodes \
+                if len(self.endnode_scores)>2:
+                    cutoff = np.sort(valid_scores)[2]
+                else:
+                    cutoff = np.sort(valid_scores)[-1]
+                #cutoff = np.sort(valid_scores)[L//2]
+                #cutoff = np.sort(valid_scores)[-1]
+                #better_half_mpps = {s:self.endnode_mpps[s][1] for s in valid_nodes \
+                #                      if self.endnode_scores[s] <= cutoff}
+                #better_half_sparsities = {s:self.endnode_sparsities[s][1] for s in valid_nodes \
+                #                      if self.endnode_scores[s] <= cutoff}
+                #better_half_ipps = {s:self.endnode_ipps[s][1] for s in valid_nodes \
+                #                      if self.endnode_scores[s] <= cutoff}
+                better_half_ipps = {s:self.endnode_ipps[s][0][-1] for s in valid_nodes \
                                       if self.endnode_scores[s] <= cutoff}
-                print("mpps satisfying better half scores are", better_half_mpps)
-                to_accept = min(better_half_mpps, key=better_half_mpps.get)
+                print("ipps satisfying better half scores are", better_half_ipps)
+                to_accept = max(better_half_ipps, key=better_half_ipps.get)
                 #to_accept = min(valid_endnode_scores, key=valid_endnode_scores.get)
+                #to_accept = min(self.endnode_mpps, key=self.endnode_mpps.get)
                 print("to-accept is ", to_accept)
+                self.summary_log("to-accept is " + str(to_accept))
                 # switch network to main
                 # self.nodes = self.nodes[to_accept].deh.copy_nodes()#extract particular nodes
                 classifiers = [self.nodes[to_accept].deh.nodes[to_accept+'0'].classifier,
@@ -6587,13 +6658,15 @@ class DEH():
                 self.nodes[to_accept+'0'].classifier = classifiers[0]
                 self.nodes[to_accept+'1'].classifier = classifiers[1]
                 for n in self.nodes:
-                    self.nodes[n].classifier = self.nodes[to_accept].deh.nodes[n].classifier
+                    self.nodes[n].classifier[:] = self.nodes[to_accept].deh.nodes[n].classifier
                     if n+'1' in self.nodes:
                         self.nodes[n].splitter = self.nodes[to_accept].deh.nodes[n].splitter
                 del self.nodes[to_accept].deh
             else:
                 to_accept = '-1'
             #print(self.nodes)
+            S = self.simple_predict(split_var)
+            self.display_level(self.get_depth())
 
             self.shake(data, n_runs=n_runs, n_pts=n_update_pts[0],
                         obj_record=obj_record, split_var=split_var)
@@ -6663,9 +6736,12 @@ class DEH():
         while keep_growing:
             endmembers = self.get_base_endnodes()
             nodes_2_check=endmembers
-            #endmembers = self.get_end_nodes()
             self.endnode_scores = {}
             self.endnode_coherences = {}
+            self.endnode_mpps = {}
+            self.endnode_sparsities = {}
+            self.endnode_localization = {}
+            self.endnode_pct2 = {}
             print(nodes_2_check, " = nodes to check")
             for en in nodes_2_check:
                 try:
@@ -6778,12 +6854,19 @@ class DEH():
                                                    split_var = split_var)
                     
                     self.nodes[en].deh.simple_predict(split_var)
+                    self.nodes[en].deh.display_level(self.get_depth)
                     eL = self.nodes[en].deh.remainder_at_level(data,
                                                                 self.nodes[en].deh.get_depth())
                     w_err = np.sum(np.multiply((eL**2).T, self.full_weights), axis=0).mean()
                     self.endnode_scores[en] = w_err
                     self.nodes[en].deh.display_level(self.nodes[en].deh.get_depth())
                     self.endnode_coherences[en] = self.nodes[en].deh.coherence()
+                    self.endnode_mpps[en] = self.nodes[en].deh.mpp_by_level()
+                    #self.endnode_sparsities[en] = self.nodes[en].deh.sparseness_by_level()
+                    self.endnode_sparsities[en] = self.nodes[en].deh.sparsity_by_level()
+                    self.endnode_localization[en] = self.nodes[en].deh.localization_of_lowest_level()
+                    self.endnode_pct2[en] = twoen_percent(S)
+
                     
                     if self.save_intermediates:
                         self.nodes[en].deh.save(save_name+'_' + en + '_' + str(len(self.get_end_nodes()))+'_OPTION.h5')
@@ -6800,13 +6883,37 @@ class DEH():
                     
             #select network
             print(self.endnode_scores)
+            print('mpps', self.endnode_mpps)
+            print('sp', self.endnode_sparsities)
+            print('loc', self.endnode_localization)
+            print('2ness', self.endnode_pct2)
+            self.summary_log("Number of endnodes: " + str(len(nodes_2_check)))
             self.summary_log(self.endnode_scores)
+            self.summary_log(self.endnode_mpps)
+            self.summary_log(self.endnode_sparsities)
+            self.summary_log(self.endnode_localization)
+            self.summary_log(self.endnode_pct2)
             self.hprint(self.endnode_coherences)
             valid_endnode_scores = self.check_splitting_criteria()
             if len(valid_endnode_scores)>0:
                 #self.save(save_name+'_' +'eq' + '_' + str(len(self.get_end_nodes()))+'.h5')
-                to_accept = min(valid_endnode_scores, key=valid_endnode_scores.get)
+                #if partitions are present, check localization
+                #localization is always generated, it is -1 if there are no partitions
+                L = len(self.endnode_localization)
+                valid_nodes = [k for k in self.endnode_localization \
+                               if self.endnode_localization[k]< 0.95] #tolerance should become a hyperparameter
+                print("localization valid nodes are ", valid_nodes)
+                valid_scores = [self.endnode_scores[s] for s in valid_nodes]
+                #cutoff = np.sort(valid_scores)[L//2]
+                cutoff = np.sort(valid_scores)[-1]
+                better_half_mpps = {s:self.endnode_mpps[s][1] for s in valid_nodes \
+                                      if self.endnode_scores[s] <= cutoff}
+                print("mpps satisfying better half scores are", better_half_mpps)
+                to_accept = min(better_half_mpps, key=better_half_mpps.get)
+                #to_accept = min(valid_endnode_scores, key=valid_endnode_scores.get)
+                #to_accept = min(self.endnode_mpps, key=self.endnode_mpps.get)
                 print("to-accept is ", to_accept)
+                self.summary_log("to-accept is " + str(to_accept))
                 # switch network to main
                 # self.nodes = self.nodes[to_accept].deh.copy_nodes()#extract particular nodes
                 classifiers = [self.nodes[to_accept].deh.nodes[to_accept+'0'].classifier,
