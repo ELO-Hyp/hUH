@@ -6634,10 +6634,11 @@ class DEH():
                                if self.endnode_localization[k]< 0.95] #tolerance should become a hyperparameter
                 print("localization valid nodes are ", valid_nodes)
                 valid_scores = [self.endnode_scores[s] for s in valid_nodes]
-                if len(self.endnode_scores)>2:
-                    cutoff = np.sort(valid_scores)[2]
-                else:
-                    cutoff = np.sort(valid_scores)[-1]
+                #if len(self.endnode_scores)>2:
+                #    cutoff = np.sort(valid_scores)[2]
+                #else:
+                #    cutoff = np.sort(valid_scores)[-1]
+                cutoff = np.sort(valid_scores)[-1]
                 #cutoff = np.sort(valid_scores)[L//2]
                 #cutoff = np.sort(valid_scores)[-1]
                 #better_half_mpps = {s:self.endnode_mpps[s][1] for s in valid_nodes \
@@ -6669,25 +6670,36 @@ class DEH():
                                self.nodes[to_accept].deh.nodes[to_accept+'1'].classifier]
                 splitter = self.nodes[to_accept].deh.nodes[to_accept].splitter
                 self.save(save_name+'_' +'eq' + '_' + str(len(self.get_end_nodes()))+'_SMOOTH.h5')
+                base_nodes = self.nodes[to_accept].deh.nodes
+                self.nodes = base_nodes
                 #print(self.nodes)
                 #transfer base network to nodes
-                self.sparse_grow_node(d_norm, split_var, to_accept)
+                #self.sparse_grow_node(d_norm, split_var, to_accept)
                 #print(self.nodes)
-                self.nodes[to_accept].splitter = splitter
-                self.nodes[to_accept+'0'].classifier = classifiers[0]
-                self.nodes[to_accept+'1'].classifier = classifiers[1]
-                for n in self.nodes:
-                    self.nodes[n].classifier[:] = self.nodes[to_accept].deh.nodes[n].classifier
-                    if n+'1' in self.nodes:
-                        self.nodes[n].splitter = self.nodes[to_accept].deh.nodes[n].splitter
-                del self.nodes[to_accept].deh
+                #self.nodes[to_accept].splitter = splitter
+                #self.nodes[to_accept+'0'].classifier = classifiers[0]
+                #self.nodes[to_accept+'1'].classifier = classifiers[1]
+                #for n in self.nodes:
+                #    self.nodes[n].classifier[:] = self.nodes[to_accept].deh.nodes[n].classifier
+                #    if n+'1' in self.nodes:
+                #        self.nodes[n].splitter = self.nodes[to_accept].deh.nodes[n].splitter
+                #del self.nodes[to_accept].deh
             else:
                 to_accept = '-1'
             #print(self.nodes)
             S = self.simple_predict(split_var)
             self.display_level(self.get_depth())
 
-            self.shake(data, n_runs=n_runs, n_pts=n_update_pts[0],
+            self.equiliberate(data, 
+                                obj_record=obj_record,
+                                n_runs=n_runs,
+                                n_pts=n_update_pts[-1],
+                                epsilon=0,
+                                split_var = split_var)
+
+            S = self.simple_predict(split_var)
+            self.display_level(self.get_depth())
+            self.shake(data, n_runs=n_runs, n_pts=n_update_pts[-1],
                         obj_record=obj_record, split_var=split_var)
             #check_nodes with pure pixels
             self.simple_predict(split_var)
