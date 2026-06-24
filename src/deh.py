@@ -5565,7 +5565,7 @@ class DEH():
         not_sat = self.weights > 0
         nodes_2_sum = self.get_nodes_2_sum()
         for n in nodes_2_sum:
-            delta = 4*(np.maximum(self.nodes[n].map-0.5,0)**2)
+            delta = 8*(np.maximum(self.nodes[n].map-0.5,0)**8)
             l_ip = delta.sum()#(self.nodes[n].map>(0.5+margin)).sum()
             ip_unnormed.append(l_ip)
             #ipps.append(l_ip/len(self.nodes[n].map))
@@ -6460,7 +6460,42 @@ class DEH():
                                 
         keep_growing = True
         old_nodes = self.copy()
-        nodes_2_check = ['0','1']
+
+        ### to-4 section
+        S=self.simple_predict(split_var)
+        self.binarize_lmdas()
+        self.lmda_2_map()
+        for en in ['0','1']:
+            self.sparse_grow_node(d_norm, split_var, en)
+            self.init_node_split(en,
+                                data,
+                                n_runs,
+                                n_pts=n_update_pts[0],
+                                split_var=split_var)
+        S=self.simple_predict(split_var)    
+        self.display_level(self.get_depth())
+        self.equiliberate_node_and_children(data, '',
+                                          n_update_points=n_update_pts[0],
+                                          n_runs=n_runs,
+                                          split_var=split_var,
+                                          spectral=False, spatial=True)
+        self.equiliberate(data, 
+                    obj_record=obj_record,
+                    n_runs=n_runs,
+                    n_pts=n_update_pts[-1],
+                    epsilon=0,
+                    split_var = split_var)
+        
+        self.shake(data, n_runs=n_runs, n_pts=n_update_pts[-1],
+                    obj_record=obj_record, split_var=split_var)
+        ###
+        self.save(save_name+'_' +'eq' + '_' + str(len(self.get_end_nodes()))+'_SMOOTH.h5')
+
+        S=self.simple_predict(split_var)    
+        self.display_level(self.get_depth())
+        
+        nodes_2_check = ['00','01','10','11']
+        #nodes_2_check = ['1','0']
         while keep_growing:
             endmembers = self.get_base_endnodes()
             #endmembers = self.get_end_nodes()
