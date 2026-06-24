@@ -5645,7 +5645,7 @@ class DEH():
                     max_part = parts.max()
                     part_S =[]
                     for i in range(max_part+1):
-                        part_S.append( np.sum(S[parts.flatten()==i]))
+                        part_S.append( np.sum(S[parts.flatten()>0.5]))
                     max_S = np.max(np.array(part_S))
                     locs.append(max_S/whole_S)
             return np.max(np.array(locs))
