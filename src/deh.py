@@ -5558,14 +5558,15 @@ class DEH():
         Note that this version requires simple predict to already be run
         ipp = interpretable pixel proportion
         '''
-        margin = 0.25 # should become a hyperparameter
+        #margin = 0.25 # should become a hyperparameter
         depth = self.get_depth()
         ipps = []
         ip_unnormed = []
         not_sat = self.weights > 0
         nodes_2_sum = self.get_nodes_2_sum()
         for n in nodes_2_sum:
-            l_ip = (self.nodes[n].map>(0.5+margin)).sum()
+            delta = 4*(np.maximum(self.nodes[n].map-0.5,0)**2)
+            l_ip = delta.sum()#(self.nodes[n].map>(0.5+margin)).sum()
             ip_unnormed.append(l_ip)
             #ipps.append(l_ip/len(self.nodes[n].map))
         #integrated_ipp = 0 
