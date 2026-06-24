@@ -5653,6 +5653,15 @@ class DEH():
         except AttributeError:
             print("localization requires partitions")
             return -1
+
+
+    def check_whether_en_has_pix(self):
+        min_pix = len(self.nodes[''].map)
+        #margin = 0.05 # the margin is to ensure that continued networks are also trainable
+        for n in self.nodes:
+            if (self.nodes[n].map > 0.5).sum() < min_pix:
+                min_pix = (self.nodes[n].map > 0.5).sum()
+        return min_pix
                 
                 
            
@@ -6506,6 +6515,7 @@ class DEH():
             self.endnode_sparsities = {}
             self.endnode_localization = {}
             self.endnode_pct2 = {}
+            self.endnode_minpix = {}
             print(nodes_2_check, " = nodes to check")
             for en in nodes_2_check:
                 try:
@@ -6629,6 +6639,7 @@ class DEH():
                     self.endnode_ipps[en] = self.nodes[en].deh.ipp_by_level()
                     #self.endnode_sparsities[en] = self.nodes[en].deh.sparseness_by_level()
                     self.endnode_sparsities[en] = self.nodes[en].deh.sparsity_by_level()
+                    self.endnode_minpix[en] = self.nodes[en].deh.check_whether_en_has_pix()
                     self.endnode_localization[en] = self.nodes[en].deh.localization_of_lowest_level()
                     self.endnode_pct2[en] = twoen_percent(S)
                     
@@ -6652,6 +6663,7 @@ class DEH():
             print('loc', self.endnode_localization)
             print('2ness', self.endnode_pct2)
             print('ipps', self.endnode_ipps)
+            print('minpix', self.endnode_minpix)
             self.summary_log("Number of endnodes: " + str(len(nodes_2_check)))
             self.summary_log(self.endnode_scores)
             self.summary_log(self.endnode_mpps)
@@ -6659,6 +6671,7 @@ class DEH():
             self.summary_log(self.endnode_localization)
             self.summary_log(self.endnode_pct2)
             self.summary_log(self.endnode_ipps)
+            self.summary_log(self.endnode_minpix)
             self.hprint(self.endnode_coherences)
             valid_endnode_scores = self.check_splitting_criteria()
             if len(valid_endnode_scores)>0:
@@ -6695,7 +6708,7 @@ class DEH():
                 #to_accept = min(valid_endnode_scores, key=valid_endnode_scores.get)
                 #to_accept = min(self.endnode_mpps, key=self.endnode_mpps.get)
                 better_half_ipps = {s:self.endnode_ipps[s][-1] for s in valid_nodes \
-                                          if self.endnode_scores[s] <= cutoff}
+                                          if self.endnode_minpix[s] > 0}# Could become a hyperparameter
                 print("ipps satisfying better half scores are", better_half_ipps)
                 to_accept = max(better_half_ipps, key=better_half_ipps.get)
                 print("to-accept is ", to_accept)
@@ -6809,6 +6822,7 @@ class DEH():
             self.endnode_sparsities = {}
             self.endnode_localization = {}
             self.endnode_pct2 = {}
+            self.endnode_minpix = {}
             print(nodes_2_check, " = nodes to check")
             for en in nodes_2_check:
                 try:
@@ -6920,7 +6934,7 @@ class DEH():
                                                     epsilon=0,
                                                    split_var = split_var)
                     
-                    self.nodes[en].deh.simple_predict(split_var)
+                    S=self.nodes[en].deh.simple_predict(split_var)
                     self.nodes[en].deh.display_level(self.get_depth)
                     eL = self.nodes[en].deh.remainder_at_level(data,
                                                                 self.nodes[en].deh.get_depth())
@@ -6932,6 +6946,7 @@ class DEH():
                     #self.endnode_sparsities[en] = self.nodes[en].deh.sparseness_by_level()
                     self.endnode_sparsities[en] = self.nodes[en].deh.sparsity_by_level()
                     self.endnode_localization[en] = self.nodes[en].deh.localization_of_lowest_level()
+                    self.endnode_minpix[en] = self.nodes[en].deh.check_whether_en_has_pix()
                     self.endnode_pct2[en] = twoen_percent(S)
 
                     
