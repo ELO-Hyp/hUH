@@ -147,6 +147,7 @@ class DEH():
         self.only_end_sparse = False
         self.cyclic_order = -1
         self.save_intermediates = False
+        self.use_binary_spectra=False
         
         self.log_filename = log_filename
         if self.log_filename:
@@ -2889,6 +2890,10 @@ class DEH():
                 self.simple_predict(sdata)
         self.get_full_weights()
         
+        if self.use_binary_spectra:
+            self.binarize_lmdas()
+            self.lmda_2_map()
+        
         self.PAA_i += 1
         indices = np.arange(0,len(data))
         for level in levels:
@@ -3576,6 +3581,33 @@ class DEH():
                 self.simple_predict(image)
             self.display_level(self.get_depth())
 
+            
+    def binary_spectral_updates(self, data, n_runs, n_update_points, alg='simple', split_var = ()):
+        if len(split_var)==0:
+            split_var = data
+        self.simple_predict(split_var)
+        self.subsamp=[]
+        self.get_full_weights()
+        prob_map = {}
+        self.binarize_lmdas()
+        self.lmda_2_map()
+        self.use_binary_spectra = True
+
+        for n in self.nodes:
+            if len(n) >= 0:
+                prob_map[n] = np.copy(self.nodes[n].map)
+                prob_map[n][self.full_weights==0] = 0
+        i=0
+        while i < n_runs:
+            #self.hprint(p_err)
+            self.one_step_S(data, beta=0, scaling_factor=self.scaling_factor,
+                            alg=alg, n_update_points=n_update_points, attenuation=1,
+                            occs=prob_map, split_var=split_var, levels=())
+            i += 1
+        self.use_binary_spectra = False
+        self.subsamp=[]
+        self.get_full_weights()
+            
             
     def stablize_network(self, data, tol, n_update_points, alg='simple'):
         self.simple_predict(data)
@@ -6503,6 +6535,9 @@ class DEH():
         S=self.simple_predict(split_var)    
         self.display_level(self.get_depth())
         
+        self.binary_spectral_updates(data, n_runs=n_runs, n_update_points=n_update_pts[-1],
+                                         alg='simple', split_var = split_var)
+        
         nodes_2_check = ['00','01','10','11']
         #nodes_2_check = ['1','0']
         while keep_growing:
@@ -6516,6 +6551,7 @@ class DEH():
             self.endnode_localization = {}
             self.endnode_pct2 = {}
             self.endnode_minpix = {}
+            nodes_2_check = self.get_base_endnodes()
             print(nodes_2_check, " = nodes to check")
             for en in nodes_2_check:
                 try:
@@ -6745,19 +6781,22 @@ class DEH():
                                 n_pts=n_update_pts[-1],
                                 epsilon=0,
                                 split_var = split_var)
-
+                
             S = self.simple_predict(split_var)
             self.display_level(self.get_depth())
-            self.shake(data, n_runs=n_runs, n_pts=n_update_pts[-1],
-                        obj_record=obj_record, split_var=split_var)
+            
+            self.binary_spectral_updates(data, n_runs=n_runs, n_update_points=n_update_pts[-1],
+                                         alg='simple', split_var = split_var)
+            #self.shake(data, n_runs=n_runs, n_pts=n_update_pts[-1],
+            #            obj_record=obj_record, split_var=split_var)
             #check_nodes with pure pixels
             self.simple_predict(split_var)
-            nodes_2_check = []
-            self.binarize_lmdas()
-            self.lmda_2_map()
-            for en in self.get_base_endnodes():
-                if np.sum(self.nodes[en].map==1) > 2:
-                    nodes_2_check.append(en)
+            #nodes_2_check = []
+            #self.binarize_lmdas()
+            #self.lmda_2_map()
+            #for en in self.get_base_endnodes():
+            #    if np.sum(self.nodes[en].map==1) > 2:
+            #        nodes_2_check.append(en)
             
             #evaluate stopping criteria
             
