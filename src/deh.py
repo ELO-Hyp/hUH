@@ -5664,8 +5664,8 @@ class DEH():
         '''
         Note that this version requires simple predict to already be run
         '''
-        self.binarize_lmdas()
-        self.lmda_2_map()
+        #self.binarize_lmdas()
+        #self.lmda_2_map()
         depth = self.get_depth()
         try:
             parts = self.partitions
@@ -5673,13 +5673,17 @@ class DEH():
             for n in self.nodes:
                 if len(n)==depth:
                     S = self.nodes[n].map
-                    whole_S = np.sum(S)
+                    in_S = S > 0.5
+                    whole_S = np.sum(in_S)
                     max_part = parts.max()
                     part_S =[]
                     for i in range(max_part+1):
-                        part_S.append( np.sum(S[parts.flatten()==i]))
+                        part_S.append( np.sum(in_S[parts.flatten()==i]))
                     max_S = np.max(np.array(part_S))
-                    locs.append(max_S/whole_S)
+                    if whole_S > 0:
+                        locs.append(max_S/whole_S)
+                    else:
+                        locs.append(0)
             return np.max(np.array(locs))
                         
         except AttributeError:
@@ -5692,7 +5696,7 @@ class DEH():
         #margin = 0.05 # the margin is to ensure that continued networks are also trainable
         for n in self.nodes:
             if (self.nodes[n].map > 0.5).sum() < min_pix:
-                min_pix = (self.nodes[n].map > 0.5).sum()
+                min_pix = np.maximum(self.nodes[n].map-0.5,0).sum()
         return min_pix
                 
                 
@@ -6744,11 +6748,12 @@ class DEH():
             #to_accept = min(valid_endnode_scores, key=valid_endnode_scores.get)
             #to_accept = min(self.endnode_mpps, key=self.endnode_mpps.get)
             better_half_ipps = {s:self.endnode_ipps[s][-1] for s in valid_nodes \
-                                      if self.endnode_minpix[s] > 0}# Could become a hyperparameter
+                                      if self.endnode_minpix[s] > 10}# Min size could become a hyperparameter
             if len(better_half_ipps)>0:
                 print("ipps satisfying better half scores are", better_half_ipps)
                 to_accept = max(better_half_ipps, key=better_half_ipps.get)
-                    
+                self.summary_log("valid ipps")
+                self.summary_log(better_half_ipps)
                 print("to-accept is ", to_accept)
                 self.summary_log("to-accept is " + str(to_accept))
                 # switch network to main
@@ -6880,14 +6885,16 @@ class DEH():
         nodes_2_check = ['0','1']
         while keep_growing:
             endmembers = self.get_base_endnodes()
-            nodes_2_check=endmembers
+            #endmembers = self.get_end_nodes()
             self.endnode_scores = {}
             self.endnode_coherences = {}
             self.endnode_mpps = {}
+            self.endnode_ipps = {}
             self.endnode_sparsities = {}
             self.endnode_localization = {}
             self.endnode_pct2 = {}
             self.endnode_minpix = {}
+            nodes_2_check = self.get_base_endnodes()
             print(nodes_2_check, " = nodes to check")
             for en in nodes_2_check:
                 try:
@@ -6999,8 +7006,8 @@ class DEH():
                                                     epsilon=0,
                                                    split_var = split_var)
                     
-                    S=self.nodes[en].deh.simple_predict(split_var)
-                    self.nodes[en].deh.display_level(self.get_depth)
+                    S = self.nodes[en].deh.simple_predict(split_var)
+                    self.nodes[en].deh.display_level(self.nodes[en].deh.get_depth())
                     eL = self.nodes[en].deh.remainder_at_level(data,
                                                                 self.nodes[en].deh.get_depth())
                     w_err = np.sum(np.multiply((eL**2).T, self.full_weights), axis=0).mean()
@@ -7008,12 +7015,12 @@ class DEH():
                     self.nodes[en].deh.display_level(self.nodes[en].deh.get_depth())
                     self.endnode_coherences[en] = self.nodes[en].deh.coherence()
                     self.endnode_mpps[en] = self.nodes[en].deh.mpp_by_level()
+                    self.endnode_ipps[en] = self.nodes[en].deh.ipp_by_level()
                     #self.endnode_sparsities[en] = self.nodes[en].deh.sparseness_by_level()
                     self.endnode_sparsities[en] = self.nodes[en].deh.sparsity_by_level()
-                    self.endnode_localization[en] = self.nodes[en].deh.localization_of_lowest_level()
                     self.endnode_minpix[en] = self.nodes[en].deh.check_whether_en_has_pix()
+                    self.endnode_localization[en] = self.nodes[en].deh.localization_of_lowest_level()
                     self.endnode_pct2[en] = twoen_percent(S)
-
                     
                     if self.save_intermediates:
                         self.nodes[en].deh.save(save_name+'_' + en + '_' + str(len(self.get_end_nodes()))+'_OPTION.h5')
@@ -7034,31 +7041,57 @@ class DEH():
             print('sp', self.endnode_sparsities)
             print('loc', self.endnode_localization)
             print('2ness', self.endnode_pct2)
+            print('ipps', self.endnode_ipps)
+            print('minpix', self.endnode_minpix)
             self.summary_log("Number of endnodes: " + str(len(nodes_2_check)))
             self.summary_log(self.endnode_scores)
             self.summary_log(self.endnode_mpps)
             self.summary_log(self.endnode_sparsities)
             self.summary_log(self.endnode_localization)
             self.summary_log(self.endnode_pct2)
+            self.summary_log(self.endnode_ipps)
+            self.summary_log(self.endnode_minpix)
             self.hprint(self.endnode_coherences)
             valid_endnode_scores = self.check_splitting_criteria()
-            if len(valid_endnode_scores)>0:
-                #self.save(save_name+'_' +'eq' + '_' + str(len(self.get_end_nodes()))+'.h5')
-                #if partitions are present, check localization
-                #localization is always generated, it is -1 if there are no partitions
-                L = len(self.endnode_localization)
-                valid_nodes = [k for k in self.endnode_localization \
-                               if self.endnode_localization[k]< 0.95] #tolerance should become a hyperparameter
-                print("localization valid nodes are ", valid_nodes)
-                valid_scores = [self.endnode_scores[s] for s in valid_nodes]
-                #cutoff = np.sort(valid_scores)[L//2]
-                cutoff = np.sort(valid_scores)[-1]
-                better_half_mpps = {s:self.endnode_mpps[s][1] for s in valid_nodes \
-                                      if self.endnode_scores[s] <= cutoff}
-                print("mpps satisfying better half scores are", better_half_mpps)
-                to_accept = min(better_half_mpps, key=better_half_mpps.get)
-                #to_accept = min(valid_endnode_scores, key=valid_endnode_scores.get)
-                #to_accept = min(self.endnode_mpps, key=self.endnode_mpps.get)
+            
+            #self.save(save_name+'_' +'eq' + '_' + str(len(self.get_end_nodes()))+'.h5')
+            #if partitions are present, check localization
+            #localization is always generated, it is -1 if there are no partitions
+            L = len(self.endnode_localization)
+            valid_nodes = [k for k in self.endnode_localization \
+                           if self.endnode_localization[k]< 0.95] #tolerance should become a hyperparameter
+            print("localization valid nodes are ", valid_nodes)
+            valid_scores = [self.endnode_scores[s] for s in valid_nodes]
+            #if len(self.endnode_scores)>2:
+            #    cutoff = np.sort(valid_scores)[2]
+            #else:
+            #    cutoff = np.sort(valid_scores)[-1]
+            cutoff = np.sort(valid_scores)[-1]
+            #cutoff = np.sort(valid_scores)[L//2]
+            #cutoff = np.sort(valid_scores)[-1]
+            #better_half_mpps = {s:self.endnode_mpps[s][1] for s in valid_nodes \
+            #                      if self.endnode_scores[s] <= cutoff}
+            #better_half_sparsities = {s:self.endnode_sparsities[s][1] for s in valid_nodes \
+            #                      if self.endnode_scores[s] <= cutoff}
+            #better_half_ipps = {s:self.endnode_ipps[s][1] for s in valid_nodes \
+            #                      if self.endnode_scores[s] <= cutoff}
+            #if self.get_depth() > 1:
+            #    lowest_common_level = np.min([len(s) for s in valid_nodes])
+            #    better_half_ipps = {s:self.endnode_ipps[s][0][lowest_common_level] for s in valid_nodes \
+            #                          if self.endnode_scores[s] <= cutoff}
+            #    print("ipps satisfying better half scores are", better_half_ipps)
+            #    to_accept = max(better_half_ipps, key=better_half_ipps.get)
+            #else:
+            #    mpps = {s:self.endnode_mpps[s][1] for s in valid_nodes}
+            #    to_accept = min(mpps, key=mpps.get)
+            #to_accept = min(valid_endnode_scores, key=valid_endnode_scores.get)
+            #to_accept = min(self.endnode_mpps, key=self.endnode_mpps.get)
+            better_half_ipps = {s:self.endnode_ipps[s][-1] for s in valid_nodes \
+                                      if self.endnode_minpix[s] > 0}# Could become a hyperparameter
+            if len(better_half_ipps)>0:
+                print("ipps satisfying better half scores are", better_half_ipps)
+                to_accept = max(better_half_ipps, key=better_half_ipps.get)
+                    
                 print("to-accept is ", to_accept)
                 self.summary_log("to-accept is " + str(to_accept))
                 # switch network to main
@@ -7067,41 +7100,81 @@ class DEH():
                                self.nodes[to_accept].deh.nodes[to_accept+'1'].classifier]
                 splitter = self.nodes[to_accept].deh.nodes[to_accept].splitter
                 self.save(save_name+'_' +'eq' + '_' + str(len(self.get_end_nodes()))+'_SMOOTH.h5')
+                base_nodes = self.nodes[to_accept].deh.nodes
+                self.nodes = base_nodes
                 #print(self.nodes)
                 #transfer base network to nodes
-                self.sparse_grow_node(d_norm, split_var, to_accept)
+                #self.sparse_grow_node(d_norm, split_var, to_accept)
                 #print(self.nodes)
-                self.nodes[to_accept].splitter = splitter
-                self.nodes[to_accept+'0'].classifier = classifiers[0]
-                self.nodes[to_accept+'1'].classifier = classifiers[1]
-                for n in self.nodes:
-                    self.nodes[n].classifier = self.nodes[to_accept].deh.nodes[n].classifier
-                    if n+'1' in self.nodes:
-                        self.nodes[n].splitter = self.nodes[to_accept].deh.nodes[n].splitter
-                del self.nodes[to_accept].deh
+                #self.nodes[to_accept].splitter = splitter
+                #self.nodes[to_accept+'0'].classifier = classifiers[0]
+                #self.nodes[to_accept+'1'].classifier = classifiers[1]
+                #for n in self.nodes:
+                #    self.nodes[n].classifier[:] = self.nodes[to_accept].deh.nodes[n].classifier
+                #    if n+'1' in self.nodes:
+                #        self.nodes[n].splitter = self.nodes[to_accept].deh.nodes[n].splitter
+                #del self.nodes[to_accept].deh
+                S = self.simple_predict(split_var)
+                self.display_level(self.get_depth())
+    
+                self.equiliberate(data, 
+                                    obj_record=obj_record,
+                                    n_runs=n_runs,
+                                    n_pts=n_update_pts[-1],
+                                    epsilon=0,
+                                    split_var = split_var)
+                    
+                S = self.simple_predict(split_var)
+                self.display_level(self.get_depth())
+                
+                self.binary_spectral_updates(data, n_runs=n_runs, n_update_points=n_update_pts[-1],
+                                             alg='simple', split_var = split_var)
             else:
                 to_accept = '-1'
+                self.scaling_factor += 1
+                print("none accepted, incrementing scaling factor to ", self.scaling_factor )
+                
+                self.equiliberate(data, 
+                                    obj_record=obj_record,
+                                    n_runs=n_runs,
+                                    n_pts=n_update_pts[-1],
+                                    epsilon=0,
+                                    split_var = split_var)
+            
+                self.shake(data, n_runs=n_runs, n_pts=n_update_pts[-1],
+                            obj_record=obj_record, split_var=split_var)
+                #check_nodes with pure pixels
+    
+                self.equiliberate(data, 
+                                        obj_record=obj_record,
+                                        n_runs=n_runs,
+                                        n_pts=n_update_pts[-1],
+                                        epsilon=0,
+                                        split_var = split_var)
+            
+                self.binary_spectral_updates(data, n_runs=n_runs, n_update_points=n_update_pts[-1],
+                                                 alg='simple', split_var = split_var)
+                
             #print(self.nodes)
 
-            self.shake(data, n_runs=n_runs, n_pts=n_update_pts[0],
-                        obj_record=obj_record, split_var=split_var)
-            #check_nodes with pure pixels
+            
+        
             self.simple_predict(split_var)
             nodes_2_check = []
-            self.binarize_lmdas()
-            self.lmda_2_map()
-            for en in self.get_base_endnodes():
-                if np.sum(self.nodes[en].map==1) > 2:
-                    nodes_2_check.append(en)
+            #self.binarize_lmdas()
+            #self.lmda_2_map()
+            #for en in self.get_base_endnodes():
+            #    if np.sum(self.nodes[en].map==1) > 2:
+            #        nodes_2_check.append(en)
             
             #evaluate stopping criteria
             
-            if to_accept=='-1':
+            #if len(selg.get_base_endnodes):
+            #    keep_growing = False
+            if len(self.get_end_nodes())>=self.max_nodes:
                 keep_growing = False
-            elif len(self.get_end_nodes())>=self.max_nodes:
-                keep_growing = False
-            elif len(nodes_2_check)==0:
-                keep_growing = False
+            #elif len(nodes_2_check)==0:
+            #    keep_growing = False
 
             
             if keep_growing:
