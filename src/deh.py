@@ -5664,8 +5664,8 @@ class DEH():
         '''
         Note that this version requires simple predict to already be run
         '''
-        #self.binarize_lmdas()
-        #self.lmda_2_map()
+        self.binarize_lmdas()
+        self.lmda_2_map()
         depth = self.get_depth()
         try:
             parts = self.partitions
@@ -6727,7 +6727,7 @@ class DEH():
             #    cutoff = np.sort(valid_scores)[2]
             #else:
             #    cutoff = np.sort(valid_scores)[-1]
-            cutoff = np.sort(valid_scores)[-1]
+            #cutoff = np.sort(valid_scores)[-1]
             #cutoff = np.sort(valid_scores)[L//2]
             #cutoff = np.sort(valid_scores)[-1]
             #better_half_mpps = {s:self.endnode_mpps[s][1] for s in valid_nodes \
@@ -6747,8 +6747,17 @@ class DEH():
             #    to_accept = min(mpps, key=mpps.get)
             #to_accept = min(valid_endnode_scores, key=valid_endnode_scores.get)
             #to_accept = min(self.endnode_mpps, key=self.endnode_mpps.get)
-            better_half_ipps = {s:self.endnode_ipps[s][-1] for s in valid_nodes \
+            
+            
+            better_half_ipps = {s:self.endnode_ipps[s][-1]/np.abs(self.endnode_localization[s]) for s in valid_nodes \
                                       if self.endnode_minpix[s] > 10}# Min size could become a hyperparameter
+            
+            #lens = [len(s) for s in better_half_ipps.keys()]
+            #min_len = np.min(lens)
+            
+            #better_half_ipps = {s:self.endnode_ipps[s][-1] for s in valid_nodes \
+            #                          if len(s)==min_len}
+            
             if len(better_half_ipps)>0:
                 print("ipps satisfying better half scores are", better_half_ipps)
                 to_accept = max(better_half_ipps, key=better_half_ipps.get)
