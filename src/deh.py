@@ -2235,7 +2235,7 @@ class DEH():
                         count += 1
             self.hprint(count)
             
-            rows = (count // 6) + 1
+            rows = (count // 5) + 1
             fig, ax = plt.subplots(rows, np.minimum(count,5), figsize=(8,2*np.minimum(count,5)))
             ax = ax.flatten()
             for i, a in enumerate(ax):
@@ -6544,7 +6544,9 @@ class DEH():
         
         nodes_2_check = ['00','01','10','11']
         #nodes_2_check = ['1','0']
+        max_level = 2
         while keep_growing:
+            print("max level is ", max_level)
             endmembers = self.get_base_endnodes()
             #endmembers = self.get_end_nodes()
             self.endnode_scores = {}
@@ -6555,7 +6557,9 @@ class DEH():
             self.endnode_localization = {}
             self.endnode_pct2 = {}
             self.endnode_minpix = {}
-            nodes_2_check = self.get_base_endnodes()
+            nodes_2_check = [n for n in self.get_base_endnodes() if len(n) <= max_level]        
+
+            
             print(nodes_2_check, " = nodes to check")
             for en in nodes_2_check:
                 try:
@@ -6770,7 +6774,7 @@ class DEH():
                 classifiers = [self.nodes[to_accept].deh.nodes[to_accept+'0'].classifier,
                                self.nodes[to_accept].deh.nodes[to_accept+'1'].classifier]
                 splitter = self.nodes[to_accept].deh.nodes[to_accept].splitter
-                self.save(save_name+'_' +'eq' + '_' + str(len(self.get_end_nodes()))+'_SMOOTH.h5')
+                #self.save(save_name+'_' +'eq' + '_' + str(len(self.get_end_nodes()))+'_SMOOTH.h5')
                 base_nodes = self.nodes[to_accept].deh.nodes
                 self.nodes = base_nodes
                 #print(self.nodes)
@@ -6784,22 +6788,24 @@ class DEH():
                 #    self.nodes[n].classifier[:] = self.nodes[to_accept].deh.nodes[n].classifier
                 #    if n+'1' in self.nodes:
                 #        self.nodes[n].splitter = self.nodes[to_accept].deh.nodes[n].splitter
-                #del self.nodes[to_accept].deh
-                S = self.simple_predict(split_var)
-                self.display_level(self.get_depth())
+                ##del self.nodes[to_accept].deh
+                #S = self.simple_predict(split_var)
+                #self.display_level(self.get_depth())
     
-                self.equiliberate(data, 
-                                    obj_record=obj_record,
-                                    n_runs=n_runs,
-                                    n_pts=n_update_pts[-1],
-                                    epsilon=0,
-                                    split_var = split_var)
+                #self.equiliberate(data, 
+                #                    obj_record=obj_record,
+                #                    n_runs=n_runs,
+                #                    n_pts=n_update_pts[-1],
+                #                    epsilon=0,
+                #                    split_var = split_var)
                     
                 S = self.simple_predict(split_var)
                 self.display_level(self.get_depth())
                 
                 self.binary_spectral_updates(data, n_runs=n_runs, n_update_points=n_update_pts[-1],
                                              alg='simple', split_var = split_var)
+                
+                self.save(save_name+'_' +'eq' + '_' + str(len(self.get_end_nodes()))+'_SPARSE.h5')
             else:
                 to_accept = '-1'
                 self.scaling_factor += 1
@@ -6851,7 +6857,11 @@ class DEH():
             if keep_growing:
                 old_nodes = self.copy()
                 endmembers = self.get_base_endnodes()
-                self.save(save_name+'_' +'eq' + '_' + str(len(self.get_end_nodes()))+'_SPARSE.h5')
+                depth = self.get_depth()
+                if depth > max_level:
+                    n_at_depth = np.sum([n[-1]=='1' for n in self.nodes if len(n)==depth])
+                    if n_at_depth > 1:#should become a hyperparameter 
+                        max_level +=1
                 #for en in endmembers  
         
         
@@ -7142,6 +7152,9 @@ class DEH():
                 to_accept = '-1'
                 self.scaling_factor += 1
                 print("none accepted, incrementing scaling factor to ", self.scaling_factor )
+                if not self.aa:
+                    self.svm_gentle_desparsify(data, n_runs, n_update_pts[0], split_var=split_var)
+
                 
                 self.equiliberate(data, 
                                     obj_record=obj_record,
