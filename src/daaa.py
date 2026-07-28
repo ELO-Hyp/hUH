@@ -10,7 +10,7 @@ import copy
 
 class DAAA():
     def __init__(self, n_components=2, initial_regularization=1, time_constant=100, delta=0, epochs=10,
-                record=False):
+                record=False, mu=0):
         self.n_components = n_components
         self.initial_regularization = initial_regularization
         self.time_constant = time_constant
@@ -23,6 +23,7 @@ class DAAA():
         self.verbose=True
         self.obj = 'L2'
         self.record = record
+        self.mu = mu
         if self.record:
             self.obj_rec = []
        
@@ -137,6 +138,7 @@ class DAAA():
             
             #print(beta_id, beta_id.dtype)
             self.W[:,i] = (1-beta)*self.W[:,i] + beta*data[:,beta_id]
+
     
     def update_H(self, data):
         Data_a = np.append(data, self.delta * np.ones((1, len(data.T))), axis=0)
@@ -163,7 +165,7 @@ class DAAA():
         
         
     def update_all_abundances_BCD(self, data):
-        self.H = update_all_abundances(data.T, self.W, self.H, self.T)
+        self.H = update_all_abundances(data.T, self.W, self.H, self.T, self.mu)
         
     def SA_update_series(self, Y, gamma, reset_iter=True):
         n_steps = self.time_constant*self.epochs
@@ -256,19 +258,43 @@ def update_one_endmember_abundance(Y, W, H, ID_n, gamma, mean_unmixed=False):
     return lambdas, converse_abundances_sum
 
 
-def update_all_abundances(Y, W, H, gamma):
+def gentle_update_abundance(Y, W, H, i, mu):
+    cas = 1-H[i] # here we assume the 1-v-rest orientation 
+    
+    m_n, m_d = calc_m_adjustments(i, H, W)
+    b_n, b_d, a1 = calc_err_grad(i, H, W, Y.T)
+
+    lam = np.minimum(np.maximum(0,(b_n + mu*m_n)/(b_d + mu*m_d)),1)
+
+    return lam, a1
+    
+
+def update_all_abundances(Y, W, H, gamma, mu=0):
     ems = np.arange(len(H))
     np.random.shuffle(ems)
     for i in ems:
-        lam, cas = update_one_endmember_abundance(Y, W, H, i, gamma)
-        H[:,cas>0] /= cas[cas>0]
-        H *= (1-lam)
-        H[i] = lam
+        if mu == 0:
+            lam, cas = update_one_endmember_abundance(Y, W, H, i, gamma)
+            H[:,cas>0] /= cas[cas>0]
+            H *= (1-lam)
+            H[i] = lam
+        else: #only set up to use either gamma or mu, assumes gamma is 0 if mu is non-zero
+            print(i, objective(Y, W, H, 0, 1),'x')
+            lam, a1 = gentle_update_abundance(Y, W, H, i, mu)
+            vals = np.zeros(len(H), dtype=bool)
+            vals[i] = True
+            #print(vals)
+            H[vals] = lam
+            H[~vals] = (1-lam)*a1
+            print(i, objective(Y, W, H, 0, 1))
+            #print(a1.shape, lam.shape, vals.sum())
+        
        
         #print((gamma*np.sum((H)**2))/len(Y))
     
     return H
 
+    
 def SA_update(Y,W,H,gamma, ID_n, T, weights, prob_type=2, obj='L2'):
     L = len(Y)
     s = len(H)
@@ -370,7 +396,8 @@ def FCLS_onestep(X, W, H, ID_n, gamma):
     return nH
 
 def calc_oppo_L_a1(endmember, S, spectra):
-    oppo_list = [i for i in range(len(S)) if i is not endmember]
+    oppo_list = [i for i in range(len(S)) if i != endmember]
+    #print(oppo_list, endmember)
     L = S.shape[-1]
     a1 = np.array([S[i]+1e-8 for i in oppo_list]) 
     a1 /= np.sum(a1, axis=0)
@@ -393,13 +420,13 @@ def calc_m_adjustments(endmember, S, spectra):
 
 def calc_err_grad(endmember, S, spectra, data):
     oppo_list, L, a1 = calc_oppo_L_a1(endmember, S, spectra)
-    conv_spec = np.sum([np.outer(a1[i], spectra[:,oppo_list[i]]) for i in range(len(oppo_list))], axis=0)
+    conv_spec = np.sum([np.outer(a1[i], spectra[:,oppo_list[i]]) for i in range(len(oppo_list))], axis=0).astype(np.float128)
 
     basic_numerator = ((data.T-conv_spec).reshape(L,1,-1)@((spectra[:,endmember])-conv_spec).reshape(L,-1,1)).reshape(L)
-    delta = (spectra[:,endmember]-conv_spec)
+    delta = (spectra[:,endmember]-conv_spec).astype(np.float128)
     basic_denominator = (delta.reshape(L,1,-1)@delta.reshape(L,-1,1)).reshape(L)
     
-    return basic_numerator, basic_denominator
+    return basic_numerator, basic_denominator, a1
 
 def make_mu_adj(basic_numerator, basic_denominator, m_numerator, m_denominator):
     return lambda x: np.maximum((basic_numerator + x * m_numerator)/(basic_denominator + x * m_denominator),0)
