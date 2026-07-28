@@ -369,4 +369,38 @@ def FCLS_onestep(X, W, H, ID_n, gamma):
     nH[ID_n] = 1-np.sum(nH, axis=0)
     return nH
 
+def calc_oppo_L_a1(endmember, S, spectra):
+    oppo_list = [i for i in range(len(S)) if i is not endmember]
+    L = S.shape[-1]
+    a1 = np.array([S[i]+1e-8 for i in oppo_list]) 
+    a1 /= np.sum(a1, axis=0)
+    return oppo_list, L, a1
+
+def calc_m_adjustments(endmember, S, spectra):
+    oppo_list, _, a1 = calc_oppo_L_a1(endmember, S, spectra)
+    a_x = lambda x: (np.sum(a1**x, axis=0))
+    a2 = a_x(2)
+    a3 = a_x(3)
+
+    mx_curve = 12*(1-a3)-6-6*a2+12*a3 #numbers come from reg.
+    y0 = S[endmember]
+    lin =  (6*(1-a3)*y0**2-6*(1+a2-2*a3)*y0+6*(a2-a3))
+
+    m_numerator = mx_curve*y0-lin
+    m_denominator = mx_curve
+
+    return m_numerator, m_denominator
+
+def calc_err_grad(endmember, S, spectra, data):
+    oppo_list, L, a1 = calc_oppo_L_a1(endmember, S, spectra)
+    conv_spec = np.sum([np.outer(a1[i], spectra[:,oppo_list[i]]) for i in range(len(oppo_list))], axis=0)
+
+    basic_numerator = ((data.T-conv_spec).reshape(L,1,-1)@((spectra[:,endmember])-conv_spec).reshape(L,-1,1)).reshape(L)
+    delta = (spectra[:,endmember]-conv_spec)
+    basic_denominator = (delta.reshape(L,1,-1)@delta.reshape(L,-1,1)).reshape(L)
+    
+    return basic_numerator, basic_denominator
+
+def make_mu_adj(basic_numerator, basic_denominator, m_numerator, m_denominator):
+    return lambda x: np.maximum((basic_numerator + x * m_numerator)/(basic_denominator + x * m_denominator),0)
     
