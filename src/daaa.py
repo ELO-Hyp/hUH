@@ -112,7 +112,7 @@ class DAAA():
             if self.PPA:
                 beta_est = np.ones(len(err.T))
             else:
-                beta_est = impact/denoms
+                beta_est = impact/(denoms+1e-16)
                 beta_est[beta_est>1] = 0
                 beta_est[beta_est<0] = 0
             
@@ -287,6 +287,7 @@ def update_all_abundances(Y, W, H, gamma, mu=0):
             H[vals] = lam
             H[~vals] = (1-lam)*a1
             print(i, objective(Y, W, H, 0, 1))
+            print(H.dtype)
             #print(a1.shape, lam.shape, vals.sum())
         
        
