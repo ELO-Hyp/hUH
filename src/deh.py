@@ -6458,7 +6458,7 @@ class DEH():
         return obj_record
 
     
-    def gentle_exhaustive_grow_network(self, indata, n_update_pts= (0,), sampling_points=(),
+    def gentle_exhaustive_grow_network(self, indata, min_split=1, n_update_pts= (0,), sampling_points=(),
                           n_runs=20, save=False, save_name='', saturation=(), split_var=(),
                                scale_spectra=False):
         
@@ -6871,7 +6871,7 @@ class DEH():
                 depth = self.get_depth()
                 if depth > max_level:
                     n_at_depth = np.sum([n[-1]=='1' for n in self.nodes if len(n)==depth])
-                    if n_at_depth > 2:#should become a hyperparameter 
+                    if n_at_depth > (min_split - 1):#should become a hyperparameter
                         max_level +=1
                 #for en in endmembers  
         
