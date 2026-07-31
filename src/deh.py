@@ -6871,7 +6871,7 @@ class DEH():
                 depth = self.get_depth()
                 if depth > max_level:
                     n_at_depth = np.sum([n[-1]=='1' for n in self.nodes if len(n)==depth])
-                    if n_at_depth > 1:#should become a hyperparameter 
+                    if n_at_depth > 2:#should become a hyperparameter 
                         max_level +=1
                 #for en in endmembers  
         
