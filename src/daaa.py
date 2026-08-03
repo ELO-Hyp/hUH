@@ -279,15 +279,15 @@ def update_all_abundances(Y, W, H, gamma, mu=0):
             H *= (1-lam)
             H[i] = lam
         else: #only set up to use either gamma or mu, assumes gamma is 0 if mu is non-zero
-            print(i, objective(Y, W, H, 0, 1),'x')
+            #print(i, objective(Y, W, H, 0, 1),'x')
             lam, a1 = gentle_update_abundance(Y, W, H, i, mu)
             vals = np.zeros(len(H), dtype=bool)
             vals[i] = True
             #print(vals)
             H[vals] = lam
             H[~vals] = (1-lam)*a1
-            print(i, objective(Y, W, H, 0, 1))
-            print(H.dtype)
+            #print(i, objective(Y, W, H, 0, 1))
+            #print(H.dtype)
             #print(a1.shape, lam.shape, vals.sum())
         
        
