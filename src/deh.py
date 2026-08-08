@@ -125,6 +125,7 @@ class DEH():
         self.PAA_backcount=1
         self.PAA_i = 0
         self.mu = 0
+        self.nu = 0 
         self.sparsifying=False
         self.delta_mu = 0
         self.reg_list = []
@@ -3419,7 +3420,8 @@ class DEH():
                 sdata_c = sdata[i//self.cyclic_order]
             
             if alg=='simple':
-                self.simple_predict(sdata)
+                S=self.simple_predict(sdata)
+                print("prodsumis", product_sum_3way(S).sum())
             else:
                 self.predict(sdata)
             self.subsamp=[]
@@ -4183,6 +4185,8 @@ class DEH():
         else:
             S=self.simple_predict(data.astype(np.float64))
             sdata = data
+        psum_o = product_sum_3way(S).mean()
+        print("initial psum is ", psum_o)
 
         #print(node, self.node_clarity(node), "node clarity")
         self.get_full_weights()
@@ -4311,6 +4315,11 @@ class DEH():
                 #werr_w = np.multiply(self.weights, werr)
                 #print(node, werr_w.shape, sdata.shape, num.shape)
                 num += np.multiply(sdata.T, werr_w).T#factors[i]*
+            if self.nu > 0:
+                #the nu regularization is applied only to the lowest level
+                aL2_reg = self.attn_L2_prefix_calc(node,depth)[0]
+                aL2_reg *= self.weights
+                num -= factors[depth]*self.nu*np.multiply(sdata.T, aL2_reg).T/2
                 
             l2_dir = 2*self.nodes[node].splitter[0].reshape(1,-1)
             l2_mean = 2*np.sum(self.nodes[node].splitter[0])*np.ones((1,L))/L
@@ -4358,6 +4367,7 @@ class DEH():
         factors /= np.sum(factors)
         
         o_err = 0 
+        
         just_r_denom = np.zeros(data.shape[0])
         just_r_num = np.zeros(data.shape[0])
         for i in range(start_layer, depth + 1):#range(len(node)+1,depth+1):
@@ -4412,8 +4422,28 @@ class DEH():
             e_type1 = np.sum(np.multiply((eL**2).T, self.weights), axis=0).astype(np.float64).mean()
             e_type2 = -rloc * np.sum(np.multiply(A.T**2, 1), axis=0).astype(np.float64).mean()
             o_err += (factors[i]*e_type1 + e_type2)
+            
+        
+        if self.nu > 0:
+            #the nu regularization is applied only to the lowest level
+            #STILL NEED TO MULTIPLY BY XW SOMEWHERE AND ADD DENOM
+            beta = -np.sum(num[init_incl])/np.sum(denom[init_incl])
+            print(var, "initial beta guess", beta)
+            aL2_num, aL2_denom = self.attn_L2_prefix_calc(node,depth)
+            aL2_num *= self.weights
+            aL2_denom *= self.weights
+            
+            #print(var, num[:5])
+            num -= factors[depth]*self.nu*np.multiply(xw, aL2_num)/2
+            #print(var, num[:5])
+            denom += factors[depth]*self.nu*np.multiply(xw**2, aL2_denom)/2
+            beta = -np.sum(num[init_incl])/np.sum(denom[init_incl])
+            print(var, " final beta guess ", beta)
+            
+            
         #print(node, num.shape, denom.shape)
         if (var=='W'):
+            #print("mu is ", mu)
             l2_dir = 2*np.dot(self.nodes[node].W_update, self.nodes[node].splitter[0])
             l2_mean = 2*np.sum(self.nodes[node].splitter[0])*np.sum(self.nodes[node].W_update)
             num = np.append(num, [mu*len(num)*(l2_dir + l2_mean)], axis=0)
@@ -4427,6 +4457,7 @@ class DEH():
         
         #denom /= self.a_speed
 
+        oerr_2 = o_err + factors[depth] * self.nu * psum_o
         
         if np.sum(init_incl1)==0:
             return -1
@@ -4519,6 +4550,7 @@ class DEH():
         #accelerator = 1#.5
         beta *= self.a_speed
         beta_0 = beta 
+        print(var, "actual beta is", beta)
             
         old_splitter = copy.deepcopy(self.nodes[node].splitter)
         if self.continuous_beta_updates:
@@ -4553,9 +4585,13 @@ class DEH():
         
             
         S=self.simple_predict(sdata.astype(np.float64))
+        psum_n = product_sum_3way(S).mean()
+        print("final psum is ", psum_n)
+
         #print(node, self.node_clarity(node), "node clarity")
         self.get_full_weights()
         n_err = 0
+        #n_err += self.nu * factors[depth] * psum_n
         for i in range(start_layer, depth + 1):
             if self.only_end_sparse:
                 if i == self.get_depth():
@@ -4575,12 +4611,15 @@ class DEH():
             n_err += (factors[i]*e_type1 + e_type2)
 
         n_incl = np.abs(self.nodes[node+'0'].lmda - 0.5) < 0.5
+        print('n_err', n_err, 'o_err', o_err)
         self.hprint('err', o_err < n_err,  var, o_err, n_err)
-        
+        nerr_2 = n_err + self.nu * factors[depth] * psum_n
+        print(node, 'n_err2', nerr_2, 'o_err2', oerr_2)
         self.old_splitter = old_splitter
         #assert o_err > n_err 
         
-        if n_err > o_err:
+        #if n_err > o_err:
+        if nerr_2 > oerr_2:
             self.hprint("1back to old splitter", node, var)
             self.nodes[node].splitter = old_splitter
         
@@ -4755,7 +4794,8 @@ class DEH():
             sdata = data
         if n_update_points > 0:
             if len(prob_map)==0:
-                self.simple_predict(sdata)
+                S=self.simple_predict(sdata)
+                print("prodsumis", np.sum(product_sum_3way(S)))
                 prob_map = {}
                 for n in nodes:
                     if len(n) >= 0:
@@ -8616,6 +8656,7 @@ class DEH():
         #self.lmda_2_map()
         #self.display_level(self.get_depth())
         S=self.simple_predict(split_var)
+        
         self.display_level(1)
         print("starting equil")
         self.equiliberate(data, obj_record=obj_record, n_runs=n_runs, n_pts=n_update_pts[0], epsilon=0,
@@ -8733,9 +8774,56 @@ class DEH():
         
         
         return obj_record
+    
+    
+    def node_children(self, node, level):
+        node_p = []
+        node_m = []
+        l = len(node)
+        for n in self.nodes:
+            if len(n) == level:
+                if n[:l] == node:
+                    if n[l] == '0':
+                        node_m.append(n)
+                    else:
+                        node_p.append(n)
+        return node_m, node_p
             
-            
-            
+        
+    def get_a_norms(self, node_list):
+        '''
+        abundances need to calculated first
+        '''
+        EPS = 1e-4
+
+        a1_0 = np.array([self.nodes[n].map for n in node_list])
+        a1_n = (a1_0 + EPS)/np.sum(a1_0 + EPS, axis=0)
+        a21 = np.sum(a1_n**2, axis=0)
+        a31 = np.sum(a1_n**3, axis=0)
+        return a1_0, a21, a31
+    
+    
+    def attn_L2_prefix_calc(self, node, level):
+        m, p = self.node_children(node, level)
+        a1m, a21m, a31m = self.get_a_norms(m)
+        a1p, a21p, a31p = self.get_a_norms(p)
+        anotk = self.nodes[node].map#np.sum(a1m,axis=0) + np.sum(a1p, axis=0)
+        ank2 = anotk**2
+        ank3 = anotk**3
+        y0 = (self.nodes[node+'1'].lmda)
+    
+    
+        opt1=12*(a31p-a31m)*ank3+2*(-3*(a21p+a21m)*ank2+6*a31m*ank3)
+        opt2=12*(a31m-a31p)*ank3+2*(-3*(a21m+a21p)*ank2+6*a31p*ank3)
+
+        mx_curve = np.maximum(opt1, opt2)
+        mx_curve = np.maximum(mx_curve, 0)
+        lin = 6*(a31p-a31m)*ank3*y0**2 - 6*((a21p+a21m)*ank2-2*a31m*ank3)*y0 + 6*(a21m*ank2-a31m*ank3)
+        mu_numerator = -(lin)
+        mu_denominator = mx_curve
+        #the 6 comes from the theory
+        return mu_numerator/6, mu_denominator/6
+        
             
         
         
@@ -9219,3 +9307,6 @@ def twoen_percent(S):
     Sg0 = S > 0
     S_twoen = np.sum(np.sum(Sg0, axis=0) < 3)
     return S_twoen/S.shape[1]
+
+def product_sum_3way(S):
+    return (1-np.sum(S**2*(3-2*S), axis=0))/6

@@ -26,6 +26,13 @@ class DAAA():
         self.mu = mu
         if self.record:
             self.obj_rec = []
+    
+    def copy(self):
+        copied = DAAA(n_components=self.n_components)
+        copied.W = copy.deepcopy(self.W)
+        copied.H = copy.deepcopy(self.H)
+        copied.time_constant = self.time_constant
+        return copied
        
         
 
@@ -156,6 +163,17 @@ class DAAA():
             self.one_iterate(data)
             if self.verbose:
                 print(objective(data.T, self.W, self.H, self.T, self.weights))
+                
+    def switch_training(self, data):
+        self.update_W_AA(data)
+        self.update_all_abundances_BCD(data)
+        self.append_record(data.T)
+        
+    def e_reg_max(self, data):
+        #only calculate the main portion of the objective function
+        obj = objective(data.T, self.W, self.H, 0, self.weights)
+        denom = np.sum(self.H**2, axis=0).mean() - 1/len(self.H)
+        return obj / denom
             
     def save(self, name):
         if self.record:
@@ -264,6 +282,11 @@ def gentle_update_abundance(Y, W, H, i, mu):
     m_n, m_d = calc_m_adjustments(i, H, W)
     b_n, b_d, a1 = calc_err_grad(i, H, W, Y.T)
 
+    
+    m_n = m_n.astype(np.float128)
+    m_d = m_d.astype(np.float128)
+    b_n = b_n.astype(np.float128)
+    b_d = b_d.astype(np.float128)
     lam = np.minimum(np.maximum(0,(b_n + mu*m_n)/(b_d + mu*m_d)),1)
 
     return lam, a1
@@ -385,10 +408,6 @@ def size2_objective(H):
 def FCLS_onestep(X, W, H, ID_n, gamma):
     L = len(H)
     nH= copy.deepcopy(H)
-    #EPS = 0.01
-    #pp = nH[ID_n]==1 #pure pixels
-    #nH[:,pp] = EPS/(L-1)
-    #nH[ID_n,pp] = 1-EPS
     lam, cas = update_one_endmember_abundance(X, W, nH, ID_n, gamma)
     nH = nH*(1-lam)
     nH[:, cas>0] /= cas[cas>0]
@@ -397,10 +416,11 @@ def FCLS_onestep(X, W, H, ID_n, gamma):
     return nH
 
 def calc_oppo_L_a1(endmember, S, spectra):
+    EPS = 1e-3
     oppo_list = [i for i in range(len(S)) if i != endmember]
     #print(oppo_list, endmember)
     L = S.shape[-1]
-    a1 = np.array([S[i]+1e-8 for i in oppo_list]) 
+    a1 = np.array([S[i]+EPS for i in oppo_list]) 
     a1 /= np.sum(a1, axis=0)
     return oppo_list, L, a1
 
