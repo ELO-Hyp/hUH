@@ -5461,7 +5461,8 @@ class DEH():
         self.level_limit = 255
         
    
-    def gL2_sparsify(self, data, n_points, n_runs, sampling_points=(), split_var=(), rate=2):
+    def gL2_sparsify(self, data, n_points, n_runs, sampling_points=(), split_var=(), rate=2,
+                    setpoint=0):
         EPS = 1e-4
         self.reg = 0
         self.nu  = 0
@@ -5470,8 +5471,8 @@ class DEH():
         if len(sampling_points)==0:
             sampling_points = np.arange(len(data))
         S = self.simple_predict(split_var[sampling_points])
-        i3w = product_sum_3way(S)/S.shape[-1]#initial 3-way product sum
-        eL = self.remainder_at_level(data, depth)
+        i3w_init = product_sum_3way(S).sum()/S.shape[-1]#initial 3-way product sum
+        eL = self.remainder_at_level(data, self.get_depth())
         self.subsamp=[]
         self.get_full_weights()
         obj = (np.sum((eL.T**2), axis=0)*self.weights).mean()
@@ -5484,19 +5485,23 @@ class DEH():
         while go_on:
             print("on cycle number ", ncycles)
             ncycles += 1
-            self.equiliberate(data, n_runs=n_runs, epsilon=0, scaling_factor=self.scaling_factor,
+            self.equiliberate(data, n_runs=n_runs, epsilon=0,
                               n_pts=n_points,
                               split_var=split_var)
             
             S = self.simple_predict(split_var[sampling_points])
-            i3w = product_sum_3way(S)/S.shape[-1]#initial 3-way product sum
+            i3w = product_sum_3way(S).sum()/S.shape[-1]#initial 3-way product sum
             print(i3w, self.nu)
             
-            if i3w < EPS:
+            if i3w < (setpoint+EPS):
                 go_on = False
             
             if go_on:
-                self.nu *= 2**(1/rate)
+                if i3w < 0.9*i3w_init:
+                    loc_rat = 2*rate
+                else:
+                    loc_rat = rate
+                self.nu *= 2**(1/loc_rat)
                 
             
             
@@ -7381,8 +7386,11 @@ class DEH():
         self.display_level(1)
         e_reg_max = obj_record[-1][0] / (np.sum(S**2, axis=0).mean()-1/len(S))#the factor of 0.1 is to stablize the initialization
         print(e_reg_max)
-        self.shake(data, n_runs=n_runs, n_pts=n_update_pts[0],
-                    obj_record=obj_record, split_var=split_var)
+        S=self.simple_predict(split_var)
+        self.display_level(1)
+        #self.gentle_sparsify(data, n_update_pts[0], 1/(n_runs+1), n_runs, split_var=split_var)
+        #self.shake(data, n_runs=n_runs, n_pts=n_update_pts[0],
+        #            obj_record=obj_record, split_var=split_var)
         self.use_bsp = False
         self.display_level(self.get_depth())
                                 
@@ -7442,80 +7450,27 @@ class DEH():
                         #self.nodes[en].deh.nodes[en].splitter = (0*self.nodes[en].deh.nodes[en[:-1]].splitter[0],0) 
                         self.nodes[en].deh.use_bsp = True
                 
+  
                 try:
-                    if False:#start_new:
-                        self.nodes[en].deh.simple_predict(split_var)
-                        self.nodes[en].deh.display_level(self.nodes[en].deh.get_depth())
-    
-                        self.nodes[en].deh.only_ends=True
-                        for i in range(len(en)):
-                            self.nodes[en].deh.equiliberate_node_and_children(data, en[:i],
-                                                                          n_update_points=n_update_pts[0],
-                                                                          n_runs=n_runs,
-                                                                          split_var=split_var,
-                                                                          spectral=False, spatial=True)
-    
-                        self.nodes[en].deh.simple_predict(split_var)
-                        self.nodes[en].deh.display_level(self.nodes[en].deh.get_depth())
-                        denom = 4 # could become a hyperparameter
-                        self.binarize_lmdas()
-                        self.lmda_2_map()
-                        abundances = self.nodes[en].deh.nodes[en].map
-    
-                        #self.nodes[en].deh.aa=False
-    
-                        
-                        
-                        rel = abundances > 0.5 #binarized, so exact # doesn't matter, just less than one, more than 0
-                        self.nodes[en].deh.equiliberate_node_and_children(data[rel], en,
-                                                                          n_update_points=n_update_pts[0],
-                                                                          n_runs=n_runs,
-                                                                          split_var=split_var[rel],
-                                                                          spectral=True, spatial=False)
-    
-                        self.nodes[en].deh.equiliberate_node_and_children(data[rel], en,
-                                                                          n_update_points=n_update_pts[0],
-                                                                          n_runs=n_runs,
-                                                                          split_var=split_var[rel])
-                        
-                        #for ii in range(1,denom):
-                        
-                        #
-                        #self.nodes[en].deh.update_spectra=True
-                        self.nodes[en].deh.simple_predict(split_var)
-                        self.nodes[en].deh.display_level(self.nodes[en].deh.get_depth())
-    
-                        
-                        self.nodes[en].deh.equiliberate(data, 
-                                                        obj_record=obj_record,
-                                                        n_runs=n_runs,
-                                                        n_pts=n_update_pts[0],
-                                                        epsilon=0, split_var=split_var)
-                        
-                        self.nodes[en].deh.shake(data, n_runs=n_runs, n_pts=n_update_pts[0],
-                                                 obj_record=obj_record, split_var=split_var)
-                        self.nodes[en].deh.only_ends=False
-                    #else:
-                    #    if not self.aa:
-                    #        self.nodes[en].deh.svm_gentle_desparsify(data, n_runs, n_update_pts[0], split_var=split_var)
-                    #        self.nodes[en].deh.subsamp=[]
-                    #        self.nodes[en].deh.get_full_weights()
-                    #        self.nodes[en].deh.binary_spectral_updates(data, n_runs=n_runs, n_update_points=n_update_pts[-1],
-                    #                     alg='simple', split_var = split_var)
-        
                     self.update_spectra=False
                     self.nodes[en].deh.equiliberate(data, 
                                                     obj_record=obj_record,
                                                     n_runs=n_runs,
                                                     n_pts=n_update_pts[0],
                                                     epsilon=0,
-                                                   split_var = split_var)
+                                                   split_var = split_var)                
                     
-                    self.nodes[en].deh.shake(data, n_runs=n_runs, n_pts=n_update_pts[0],
-                                             obj_record=obj_record, split_var=split_var)
+                    #self.nodes[en].deh.shake(data, n_runs=n_runs, n_pts=n_update_pts[0],
+                    #                         obj_record=obj_record, split_var=split_var)
                     self.nodes[en].deh.shake(data, n_runs=n_runs, n_pts=n_update_pts[0],
                                              obj_record=obj_record, split_var=split_var,
                                             penalty='nu')
+                    
+                    #S = self.nodes[en].deh.simple_predict(split_var)
+                    #i3w = product_sum_3way(S).sum()/S.shape[-1]
+                    #self.nodes[en].deh.gL2_sparsify(data, n_points=n_update_pts[-1], n_runs=n_runs,
+                    #              split_var=split_var, setpoint=i3w*(1/(n_runs+1)))
+                    
                     
                     self.nodes[en].deh.equiliberate(data, 
                                                     obj_record=obj_record,
@@ -7532,11 +7487,18 @@ class DEH():
                                                     epsilon=0,
                                                    split_var = split_var)
                     
-                    self.nodes[en].deh.shake(data, n_runs=n_runs, n_pts=n_update_pts[0],
-                                             obj_record=obj_record, split_var=split_var)
+                    #self.nodes[en].deh.shake(data, n_runs=n_runs, n_pts=n_update_pts[0],
+                    #                         obj_record=obj_record, split_var=split_var)
+                    
+                    #S = self.nodes[en].deh.simple_predict(split_var)
+                    #i3w = product_sum_3way(S).sum()/S.shape[-1]
+                    #self.nodes[en].deh.gL2_sparsify(data, n_points=n_update_pts[-1], n_runs=n_runs,
+                    #              split_var=split_var, setpoint=i3w*(1/(n_runs+1)))
+                    
                     self.nodes[en].deh.shake(data, n_runs=n_runs, n_pts=n_update_pts[0],
                                              obj_record=obj_record, split_var=split_var,
                                             penalty='nu')
+                    
                     
                     self.nodes[en].deh.equiliberate(data, 
                                                     obj_record=obj_record,
@@ -7624,6 +7586,7 @@ class DEH():
             #    mpps = {s:self.endnode_mpps[s][1] for s in valid_nodes}
             #    to_accept = min(mpps, key=mpps.get)
             to_accept = min(valid_endnode_scores, key=valid_endnode_scores.get)
+            print("to-accept is ", to_accept)
             #to_accept = min(self.endnode_mpps, key=self.endnode_mpps.get)
             
             
@@ -7677,8 +7640,8 @@ class DEH():
 
                 #self.binary_spectral_updates(data, n_runs=n_runs, n_update_points=n_update_pts[-1],
                 #                             alg='simple', split_var = split_var)
-                self.gL2_sparsify(data, n_points=n_update_pts[-1], n_runs=n_runs,
-                                  split_var=split_var)
+                #self.gL2_sparsify(data, n_points=n_update_pts[-1], n_runs=n_runs,
+                #                  split_var=split_var)
                 
                 start_new=True
             else:
@@ -7730,6 +7693,10 @@ class DEH():
 
             
             if keep_growing:
+                S = self.simple_predict(split_var)
+                i3w = product_sum_3way(S).sum()/S.shape[-1]
+                self.gL2_sparsify(data, n_points=n_update_pts[-1], n_runs=n_runs,
+                                  split_var=split_var)
                 old_nodes = self.copy()
                 endmembers = self.get_base_endnodes()
                 depth = self.get_depth()
@@ -7737,6 +7704,27 @@ class DEH():
                     n_at_depth = np.sum([n[-1]=='1' for n in self.nodes if len(n)==depth])
                     if n_at_depth > (min_split - 1):#should become a hyperparameter
                         max_level +=1
+            else:
+                self.only_ends = True
+                for i in range(n_runs):
+                    S = self.simple_predict(split_var)
+                    i3w = product_sum_3way(S).sum()/S.shape[-1]
+                    self.gL2_sparsify(data, n_points=n_update_pts[-1], n_runs=n_runs,
+                                  split_var=split_var, setpoint=(i3w*((i+1)/(n_runs+1))))
+                    #self.shake(data, n_runs=n_runs, n_pts=n_update_pts[0],
+                    #                         obj_record=obj_record, split_var=split_var)
+                    self.shake(data, n_runs=n_runs, n_pts=n_update_pts[0],
+                                             obj_record=obj_record, split_var=split_var,
+                                             penalty='nu')
+                    self.equiliberate(data, 
+                                    obj_record=obj_record,
+                                    n_runs=n_runs,
+                                    n_pts=n_update_pts[-1],
+                                    epsilon=0,
+                                   split_var = split_var)
+                        #self.shake(data, n_runs=n_runs, n_pts=n_update_pts[0],
+                    #                         obj_record=obj_record, split_var=split_var,
+                    #                        penalty='nu')
                 #for en in endmembers  
         
         
@@ -9300,7 +9288,7 @@ class DEH():
         
         
         
-def quick_split(data, tol=1e-6, weights = (), ppa=True, even=False):
+def quick_split(data, tol=1e-6, weights = (), ppa=False, even=False):
     if len(weights)==0:
         j0 = data.mean(axis=0)
         #print(j0.shape)
